@@ -1,0 +1,7 @@
+{
+  "name": "MEB 4. Sınıf Test ve Sınav Portalı",
+  "description": "MEB 4. sınıf müfredatına tam uyumlu, yapay zekâ destekli test oluşturma, öğrenci sınav arayüzü ve öğretmen canlı sonuç takip paneli.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
