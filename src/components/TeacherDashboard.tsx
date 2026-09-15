@@ -112,12 +112,12 @@ ${activeQuiz.subjectName} dersi '${activeQuiz.topic}' pekiştirme testimiz hazı
   // Handle Login
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordInput.trim() === 'ogretmen123') {
+    if (passwordInput.trim() === '1051hmz+') {
       Storage.setTeacherLoggedIn(true);
       setIsAuthenticated(true);
       setAuthError('');
     } else {
-      setAuthError('Hatalı şifre! Lütfen kontrol ediniz. (İpucu: ogretmen123)');
+      setAuthError('Hatalı şifre! Lütfen kontrol ediniz. (İpucu: ogretmen12)');
     }
   };
 
