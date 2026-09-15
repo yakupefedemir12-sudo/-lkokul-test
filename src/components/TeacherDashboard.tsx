@@ -388,12 +388,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const clean = passwordInput.trim();
-    if (clean === '1051hmz+' || clean === 'ogretmen123') {
+    if (clean === '1051hmz+') {
       Storage.setTeacherLoggedIn(true);
       setIsAuthenticated(true);
       setAuthError('');
     } else {
-      setAuthError('Hatalı şifre! Lütfen kontrol ediniz. (Şifre: 1051hmz+)');
+      setAuthError('Hatalı şifre! Lütfen kontrol ediniz. (Şifre: ogretmen123)');
     }
   };
 
