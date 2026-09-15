@@ -39,8 +39,39 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
   results,
   refreshData,
 }) => {
+  // Read quizId parameter from URL if provided (e.g. ?mode=student&quizId=xyz)
+  const [urlQuiz, setUrlQuiz] = useState<Quiz | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const qId = params.get('quizId');
+    if (qId) {
+      return Storage.getQuizById(qId);
+    }
+    return null;
+  });
+  const [isLoadingUrlQuiz, setIsLoadingUrlQuiz] = useState<boolean>(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const qId = params.get('quizId');
+    if (qId) {
+      const local = Storage.getQuizById(qId);
+      if (local) {
+        setUrlQuiz(local);
+      } else {
+        setIsLoadingUrlQuiz(true);
+        Storage.fetchServerQuizById(qId)
+          .then((fetched) => {
+            if (fetched) setUrlQuiz(fetched);
+          })
+          .finally(() => setIsLoadingUrlQuiz(false));
+      }
+    }
+  }, []);
+
+  const activeQuiz = urlQuiz || quiz;
+
   // Session storage key for locking the student to this quiz
-  const studentSessionKey = `meb_student_session_${quiz.id}`;
+  const studentSessionKey = `meb_student_session_${activeQuiz.id}`;
 
   // Screen phase: 'select_student' | 'taking_exam' | 'submitted'
   const [phase, setPhase] = useState<'select_student' | 'taking_exam' | 'submitted'>('select_student');
@@ -58,10 +89,10 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
   const studentResultMap = useMemo(() => {
     const map = new Map<string, ExamResult>();
     results
-      .filter((r) => r.quizId === quiz.id)
+      .filter((r) => r.quizId === activeQuiz.id)
       .forEach((r) => map.set(r.studentId, r));
     return map;
-  }, [results, quiz.id]);
+  }, [results, activeQuiz.id]);
 
   const completedStudentIds = useMemo(() => {
     return new Set(studentResultMap.keys());
@@ -151,8 +182,8 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
   };
 
   // Current question data
-  const currentQuestion = quiz.questions[currentQuestionIndex] || quiz.questions[0];
-  const totalQuestions = quiz.questions.length;
+  const currentQuestion = activeQuiz.questions[currentQuestionIndex] || activeQuiz.questions[0];
+  const totalQuestions = activeQuiz.questions.length;
   const answeredCount = Object.keys(answers).length;
   const emptyCount = totalQuestions - answeredCount;
 
@@ -165,7 +196,7 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
     let wrong = 0;
     let empty = 0;
 
-    const detailedAnswers: StudentAnswer[] = quiz.questions.map((q) => {
+    const detailedAnswers: StudentAnswer[] = activeQuiz.questions.map((q) => {
       const selected = answers[q.id] || null;
       if (!selected) {
         empty++;
@@ -191,12 +222,12 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
 
     const newResult: ExamResult = {
       id: `res-${Date.now()}-${selectedStudent.id}`,
-      quizId: quiz.id,
+      quizId: activeQuiz.id,
       studentId: selectedStudent.id,
       studentNo: selectedStudent.no,
       studentName: selectedStudent.name,
-      subjectName: quiz.subjectName,
-      topic: quiz.topic,
+      subjectName: activeQuiz.subjectName,
+      topic: activeQuiz.topic,
       totalQuestions,
       correctCount: correct,
       wrongCount: wrong,
@@ -232,6 +263,16 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
     setPhase('select_student');
   };
 
+  if (isLoadingUrlQuiz && !urlQuiz) {
+    return (
+      <div className="max-w-md mx-auto my-16 p-8 bg-white rounded-3xl border border-slate-200 shadow-sm text-center">
+        <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <h3 className="font-extrabold text-slate-800 text-base">Sınav Soruları Yükleniyor...</h3>
+        <p className="text-xs text-slate-500 mt-1">Öğretmeninizin sınav soruları getiriliyor, lütfen bekleyiniz.</p>
+      </div>
+    );
+  }
+
   // ==========================================
   // 1. PHASE: STUDENT SELECTION SCREEN
   // ==========================================
@@ -256,10 +297,10 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-2 font-['Plus_Jakarta_Sans',sans-serif]">
-            {quiz.subjectName} Sınavına Hoş Geldin!
+            {activeQuiz.subjectName} Sınavına Hoş Geldin!
           </h2>
           <p className="text-sm font-semibold text-slate-600 mb-6">
-            Konu: <span className="text-amber-600 font-extrabold">{quiz.topic}</span>
+            Konu: <span className="text-amber-600 font-extrabold">{activeQuiz.topic}</span>
           </p>
 
           {/* Info Card */}
@@ -371,7 +412,7 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
     }
 
     // Filter questions according to reviewFilter
-    const filteredQuestions = quiz.questions.filter((q) => {
+    const filteredQuestions = activeQuiz.questions.filter((q) => {
       const studentAns = result.answers?.find((a) => a.questionId === q.id);
       const isCorrect = studentAns?.isCorrect === true;
 
@@ -792,7 +833,7 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
           <div>
             <h3 className="font-black text-slate-800 text-sm">{selectedStudent?.name}</h3>
             <p className="text-xs text-slate-500 font-medium">
-              {quiz.subjectName} • {quiz.topic}
+              {activeQuiz.subjectName} • {activeQuiz.topic}
             </p>
           </div>
         </div>
@@ -837,7 +878,7 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
           <span className="text-[11px] text-emerald-600">Yeşil: Cevaplandı</span>
         </div>
         <div className="grid grid-cols-10 sm:grid-cols-20 gap-1 sm:gap-1.5">
-          {quiz.questions.map((q, idx) => {
+          {activeQuiz.questions.map((q, idx) => {
             const isAnswered = !!answers[q.id];
             const isCurrent = idx === currentQuestionIndex;
 

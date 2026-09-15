@@ -173,29 +173,29 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     }
   };
 
-  // Helper to generate full student exam URL
-  const getStudentExamUrl = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('mode', 'student');
-    return url.toString();
+  // Helper to generate full student exam URL with specific quizId
+  const getStudentExamUrl = (quizId?: string) => {
+    const targetId = quizId || currentViewQuiz.id;
+    return `${window.location.origin}/?mode=student&quizId=${encodeURIComponent(targetId)}`;
   };
 
-  // Helper to copy the parent group message for the current viewed quiz
-  const handleCopyParentMessage = () => {
-    const link = getStudentExamUrl();
-    const text = `Değerli Velilerimiz ve Sevgili Öğrencilerim,\n${currentViewQuiz.subjectName} dersi '${currentViewQuiz.topic}' pekiştirme testimiz hazırdır. Aşağıdaki linke tıklayarak listeden adınızı seçip teste başlayabilirsiniz:\n🔗 Sınav Linki: ${link}`;
+  // Helper to copy the parent group message for any quiz or the current viewed quiz
+  const handleCopyParentMessage = (targetQuiz?: Quiz) => {
+    const q = targetQuiz || currentViewQuiz;
+    const link = getStudentExamUrl(q.id);
+    const text = `Değerli Velilerimiz ve Sevgili Öğrencilerim,\n${q.subjectName} dersi '${q.topic}' pekiştirme testimiz hazırdır. Aşağıdaki linke tıklayarak listeden adınızı seçip doğrudan teste başlayabilirsiniz:\n🔗 Sınav Linki: ${link}`;
 
     navigator.clipboard.writeText(text);
     setParentMsgCopied(true);
     setTimeout(() => setParentMsgCopied(false), 3500);
   };
 
-  // Helper to activate a past quiz for students
+  // Helper to activate a past quiz for students (synced with server & storage)
   const handleMakeQuizActive = (quizToActivate: Quiz) => {
     Storage.setActiveQuiz(quizToActivate);
     setActiveQuiz(quizToActivate);
     setSelectedQuizId(quizToActivate.id);
-    setQuizActionToast(`"${quizToActivate.subjectName} - ${quizToActivate.topic}" sınavı öğrenci ekranında yayına alındı!`);
+    setQuizActionToast(`"${quizToActivate.subjectName} - ${quizToActivate.topic}" sınavı sunucuda ve öğrenci ekranında aktif edildi!`);
     setTimeout(() => setQuizActionToast(null), 4000);
     refreshData();
   };
@@ -686,6 +686,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     } else {
       text += missing.map((s) => s.name).join(', ');
     }
+
+    text += `\n\n🔗 Sınav Linki: ${getStudentExamUrl(q.id)}`;
 
     navigator.clipboard.writeText(text);
     setQuizActionToast(`"${q.topic}" WhatsApp sonuç özeti panoya kopyalandı!`);
@@ -1644,6 +1646,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             <span>Aktif Sınav Yap</span>
                           </button>
                         )}
+
+                        {/* Veli/Öğrenci Sınav Linkini Kopyala */}
+                        <button
+                          onClick={() => handleCopyParentMessage(q)}
+                          id={`copy-parent-msg-${q.id}`}
+                          title="Bu sınavın veli/öğrenci sınav linkini ve duyurusunu kopyala"
+                          className="bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold px-2.5 py-2 rounded-xl text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                        >
+                          <Share2 className="w-3.5 h-3.5 text-indigo-600" />
+                          <span className="hidden sm:inline">Veli Linki</span>
+                        </button>
 
                         {/* WhatsApp Özeti */}
                         <button

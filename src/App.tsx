@@ -17,19 +17,73 @@ export default function App() {
   const [activeQuiz, setActiveQuiz] = useState<Quiz>(() => Storage.getActiveQuiz());
   const [students, setStudents] = useState<Student[]>(() => Storage.getStudents());
   const [results, setResults] = useState<ExamResult[]>(() => Storage.getResults());
+  
+  // Specific quiz if URL contains ?quizId=...
+  const [specificQuiz, setSpecificQuiz] = useState<Quiz | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const qId = params.get('quizId');
+    if (qId) {
+      return Storage.getQuizById(qId);
+    }
+    return null;
+  });
 
   // Function to reload data from Storage
   const refreshData = useCallback(() => {
     setActiveQuiz(Storage.getActiveQuiz());
     setStudents(Storage.getStudents());
     setResults(Storage.getResults());
+
+    const params = new URLSearchParams(window.location.search);
+    const qId = params.get('quizId');
+    if (qId) {
+      const found = Storage.getQuizById(qId);
+      if (found) {
+        setSpecificQuiz(found);
+      }
+    }
   }, []);
+
+  // Sync with server on initial mount and when URL or storage updates
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const qId = params.get('quizId');
+
+    const syncWithServer = async () => {
+      try {
+        if (qId) {
+          // If a specific quiz is requested by student/parent link, fetch it
+          const serverQ = await Storage.fetchServerQuizById(qId);
+          if (serverQ) {
+            setSpecificQuiz(serverQ);
+          }
+        } else {
+          // If no specific quizId in URL, fetch the latest active quiz from server
+          const serverActive = await Storage.fetchServerActiveQuiz();
+          if (serverActive) {
+            setActiveQuiz(serverActive);
+          }
+        }
+
+        // Also sync results across devices
+        await Storage.fetchServerResults();
+        refreshData();
+      } catch (err) {
+        console.warn('Server sync error on mount:', err);
+      }
+    };
+
+    syncWithServer();
+  }, [refreshData]);
 
   // Set mode and update URL without reload
   const setMode = (newMode: AppMode) => {
     setModeState(newMode);
     const url = new URL(window.location.href);
     url.searchParams.set('mode', newMode);
+    if (newMode === 'student' && !url.searchParams.has('quizId')) {
+      url.searchParams.set('quizId', activeQuiz.id);
+    }
     window.history.pushState({}, '', url.toString());
   };
 
@@ -48,8 +102,11 @@ export default function App() {
     };
   }, [refreshData]);
 
+  // Current quiz to render for the student
+  const currentStudentQuiz = (mode === 'student' && specificQuiz) ? specificQuiz : activeQuiz;
+
   // Current quiz results count
-  const currentQuizResults = results.filter((r) => r.quizId === activeQuiz.id);
+  const currentQuizResults = results.filter((r) => r.quizId === (mode === 'student' ? currentStudentQuiz.id : activeQuiz.id));
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100/60 font-['Plus_Jakarta_Sans',sans-serif]">
@@ -57,7 +114,7 @@ export default function App() {
       <Header
         mode={mode}
         setMode={setMode}
-        activeQuiz={activeQuiz}
+        activeQuiz={currentStudentQuiz}
         resultsCount={currentQuizResults.length}
         totalStudents={students.length}
       />
@@ -66,9 +123,9 @@ export default function App() {
       <main className="flex-1 w-full max-w-7xl mx-auto py-4 sm:py-6">
         {mode === 'student' ? (
           <StudentExamScreen
-            quiz={activeQuiz}
+            quiz={currentStudentQuiz}
             students={students}
-            results={currentQuizResults}
+            results={results}
             refreshData={refreshData}
           />
         ) : (

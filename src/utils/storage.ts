@@ -62,6 +62,13 @@ export const Storage = {
       localStorage.setItem(STORAGE_KEYS.ACTIVE_QUIZ, JSON.stringify(quiz));
       this.saveQuizToArchive(quiz, false);
       window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.ACTIVE_QUIZ } }));
+
+      // Synchronize active quiz with server so other devices/students immediately see it
+      fetch('/api/active-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quiz }),
+      }).catch((err) => console.warn('Sunucu aktif sınav eşitleme uyarısı:', err));
     } catch (e) {
       console.error('Failed to save active quiz:', e);
     }
@@ -106,8 +113,78 @@ export const Storage = {
       if (emitEvent) {
         window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.QUIZZES_ARCHIVE } }));
       }
+
+      // Synchronize quiz with server archive
+      fetch('/api/quizzes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quiz }),
+      }).catch((err) => console.warn('Sunucu arşiv eşitleme uyarısı:', err));
     } catch (e) {
       console.error('Failed to save quiz to archive:', e);
+    }
+  },
+
+  getQuizById(quizId: string): Quiz | null {
+    if (!quizId) return null;
+    const all = this.getAllQuizzes();
+    return all.find((q) => q.id === quizId) || null;
+  },
+
+  // Fetch active quiz from server (for cross-device / student direct links)
+  async fetchServerActiveQuiz(): Promise<Quiz | null> {
+    try {
+      const res = await fetch('/api/active-quiz');
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.success && data.quiz && Array.isArray(data.quiz.questions) && data.quiz.questions.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_QUIZ, JSON.stringify(data.quiz));
+        this.saveQuizToArchive(data.quiz, false);
+        window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.ACTIVE_QUIZ } }));
+        return data.quiz;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
+
+  // Fetch quiz by specific ID from server (for student ?quizId= links)
+  async fetchServerQuizById(quizId: string): Promise<Quiz | null> {
+    if (!quizId) return null;
+    try {
+      const res = await fetch(`/api/quizzes/${encodeURIComponent(quizId)}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.success && data.quiz && Array.isArray(data.quiz.questions) && data.quiz.questions.length > 0) {
+        this.saveQuizToArchive(data.quiz, true);
+        return data.quiz;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
+
+  // Fetch results from server
+  async fetchServerResults(): Promise<ExamResult[] | null> {
+    try {
+      const res = await fetch('/api/results');
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.success && Array.isArray(data.results)) {
+        const local = this.getResults();
+        const map = new Map<string, ExamResult>();
+        local.forEach((r) => map.set(`${r.quizId}_${r.studentId}`, r));
+        data.results.forEach((r: ExamResult) => map.set(`${r.quizId}_${r.studentId}`, r));
+        const merged = Array.from(map.values());
+        localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(merged));
+        window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.RESULTS } }));
+        return merged;
+      }
+      return null;
+    } catch {
+      return null;
     }
   },
 
@@ -197,6 +274,13 @@ export const Storage = {
       }
       localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(all));
       window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.RESULTS } }));
+
+      // Synchronize result with server
+      fetch('/api/results', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ result }),
+      }).catch((err) => console.warn('Sunucu sonuç eşitleme hatası:', err));
     } catch (e) {
       console.error('Failed to save exam result:', e);
     }
@@ -208,6 +292,11 @@ export const Storage = {
       const filtered = all.filter((r) => r.quizId !== quizId);
       localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(filtered));
       window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.RESULTS } }));
+
+      // Synchronize clear with server
+      fetch(`/api/results/${encodeURIComponent(quizId)}`, {
+        method: 'DELETE',
+      }).catch((err) => console.warn('Sunucu sonuç silme hatası:', err));
     } catch (e) {
       console.error('Failed to clear quiz results:', e);
     }

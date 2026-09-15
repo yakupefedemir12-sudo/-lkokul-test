@@ -22,6 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   const copyStudentLink = () => {
     const url = new URL(window.location.href);
     url.searchParams.set('mode', 'student');
+    url.searchParams.set('quizId', activeQuiz.id);
     navigator.clipboard.writeText(url.toString());
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);

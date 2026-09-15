@@ -39,6 +39,139 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// In-memory Server-side State for Cross-Device Synchronization
+interface ServerQuizItem {
+  id: string;
+  title: string;
+  subjectId?: string;
+  subjectName: string;
+  topic: string;
+  createdAt: string;
+  questions: any[];
+}
+
+let serverActiveQuiz: ServerQuizItem = {
+  id: "quiz-meb-4-default",
+  title: "Matematik 4. Sınıf - Doğal Sayılar ve Basamak Değeri Değerlendirme Testi",
+  subjectId: "matematik",
+  subjectName: "Matematik",
+  topic: "Doğal Sayılar ve Basamak Değeri",
+  createdAt: new Date().toISOString(),
+  questions: getFallbackQuestions("Matematik", "Doğal Sayılar ve Basamak Değeri"),
+};
+
+const serverQuizzesMap = new Map<string, ServerQuizItem>();
+serverQuizzesMap.set(serverActiveQuiz.id, serverActiveQuiz);
+
+const serverResultsMap = new Map<string, any>(); // key: `${quizId}_${studentId}`
+
+// GET: Current Active Quiz from Server
+app.get("/api/active-quiz", (req, res) => {
+  res.json({
+    success: true,
+    quiz: serverActiveQuiz,
+  });
+});
+
+// POST: Update Current Active Quiz on Server
+app.post("/api/active-quiz", (req, res) => {
+  const { quiz } = req.body;
+  if (!quiz || !quiz.id || !Array.isArray(quiz.questions) || quiz.questions.length === 0) {
+    return res.status(400).json({
+      error: "Geçersiz veya eksik sınav nesnesi.",
+    });
+  }
+
+  serverActiveQuiz = quiz;
+  serverQuizzesMap.set(quiz.id, quiz);
+  console.log(`[Sunucu] Aktif sınav güncellendi: ${quiz.subjectName} - ${quiz.topic} (${quiz.id})`);
+
+  res.json({
+    success: true,
+    message: "Aktif sınav sunucuda başarıyla güncellendi.",
+    quiz: serverActiveQuiz,
+  });
+});
+
+// GET: Fetch Quiz by ID
+app.get("/api/quizzes/:id", (req, res) => {
+  const { id } = req.params;
+  const quiz = serverQuizzesMap.get(id);
+
+  if (!quiz) {
+    // If it matches active quiz id
+    if (serverActiveQuiz && serverActiveQuiz.id === id) {
+      return res.json({ success: true, quiz: serverActiveQuiz });
+    }
+    return res.status(404).json({
+      error: "Sınav bulunamadı.",
+    });
+  }
+
+  res.json({
+    success: true,
+    quiz,
+  });
+});
+
+// POST: Register or Update Quiz in Server Archive
+app.post("/api/quizzes", (req, res) => {
+  const { quiz } = req.body;
+  if (!quiz || !quiz.id) {
+    return res.status(400).json({ error: "Sınav ID'si zorunludur." });
+  }
+
+  serverQuizzesMap.set(quiz.id, quiz);
+  res.json({ success: true });
+});
+
+// GET: List All Quizzes in Server Archive
+app.get("/api/quizzes", (req, res) => {
+  res.json({
+    success: true,
+    quizzes: Array.from(serverQuizzesMap.values()),
+  });
+});
+
+// GET: Results
+app.get("/api/results", (req, res) => {
+  const { quizId } = req.query;
+  const all = Array.from(serverResultsMap.values());
+  if (quizId && typeof quizId === "string") {
+    return res.json({
+      success: true,
+      results: all.filter((r) => r.quizId === quizId),
+    });
+  }
+  res.json({
+    success: true,
+    results: all,
+  });
+});
+
+// POST: Save Result
+app.post("/api/results", (req, res) => {
+  const { result } = req.body;
+  if (!result || !result.quizId || !result.studentId) {
+    return res.status(400).json({ error: "Geçersiz sınav sonucu." });
+  }
+
+  const key = `${result.quizId}_${result.studentId}`;
+  serverResultsMap.set(key, result);
+  res.json({ success: true });
+});
+
+// DELETE: Clear Results for a Quiz
+app.delete("/api/results/:quizId", (req, res) => {
+  const { quizId } = req.params;
+  for (const [k, v] of serverResultsMap.entries()) {
+    if (v.quizId === quizId) {
+      serverResultsMap.delete(k);
+    }
+  }
+  res.json({ success: true });
+});
+
 // AI Quiz Generation Endpoint
 app.post("/api/generate-quiz", async (req, res) => {
   const { subject, topic, customPrompt } = req.body;
