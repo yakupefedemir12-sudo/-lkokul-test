@@ -22,7 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   const copyStudentLink = () => {
     const url = new URL(window.location.href);
     url.searchParams.set('mode', 'student');
-    if (activeQuiz) {
+    if (activeQuiz?.id) {
       url.searchParams.set('quizId', activeQuiz.id);
     } else {
       url.searchParams.delete('quizId');
@@ -31,6 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
   };
+
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs">
@@ -90,13 +91,13 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
               {activeQuiz ? (
                 <p className="text-xs text-slate-500 flex items-center gap-1.5 truncate max-w-[260px] sm:max-w-md">
-                  <span className="font-semibold text-slate-700">{activeQuiz.subjectName}:</span>
-                  <span className="truncate">{activeQuiz.topic}</span>
+                  <span className="font-semibold text-slate-700">{activeQuiz?.subjectName || 'Ders'}:</span>
+                  <span className="truncate">{activeQuiz?.topic || 'Konu'}</span>
                   <span className="text-slate-300">•</span>
-                  <span className="text-emerald-600 font-semibold">{activeQuiz.questions.length} Soru</span>
+                  <span className="text-emerald-600 font-semibold">{(activeQuiz?.questions || []).length} Soru</span>
                 </p>
               ) : (
-                <p className="text-xs text-amber-600 font-bold flex items-center gap-1.5">
+                <p className="text-xs text-amber-700 font-bold flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse inline-block" />
                   <span>Şu anda yayında aktif bir sınav yok</span>
                 </p>

@@ -189,11 +189,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   };
 
   // Helper to copy the parent group message for any quiz or the current viewed quiz
-  const handleCopyParentMessage = (targetQuiz?: Quiz) => {
-    const q = targetQuiz || currentViewQuiz;
-    if (!q) return;
+  const handleCopyParentMessage = (targetQuiz?: Quiz | null | React.MouseEvent) => {
+    const q = targetQuiz && typeof targetQuiz === 'object' && 'id' in targetQuiz ? (targetQuiz as Quiz) : currentViewQuiz || activeQuiz;
+    if (!q) {
+      alert('Paylaşılacak bir sınav bulunamadı. Lütfen önce bir sınav oluşturun veya arşivden seçin.');
+      return;
+    }
     const link = getStudentExamUrl(q.id);
-    const text = `Değerli Velilerimiz ve Sevgili Öğrencilerim,\n${q.subjectName} dersi '${q.topic}' pekiştirme testimiz hazırdır. Aşağıdaki linke tıklayarak listeden adınızı seçip doğrudan teste başlayabilirsiniz:\n🔗 Sınav Linki: ${link}`;
+    const text = `Değerli Velilerimiz ve Sevgili Öğrencilerim,\n${q.subjectName || 'Ders'} dersi '${q.topic || 'Konu'}' pekiştirme testimiz hazırdır. Aşağıdaki linke tıklayarak listeden adınızı seçip doğrudan teste başlayabilirsiniz:\n🔗 Sınav Linki: ${link}`;
 
     navigator.clipboard.writeText(text);
     setParentMsgCopied(true);
@@ -679,19 +682,24 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // Copy WhatsApp summary for the currently viewed quiz
   const handleCopyWhatsApp = () => {
+    if (!currentViewQuiz) {
+      alert('Paylaşılacak bir sınav seçilmedi.');
+      return;
+    }
     handleCopyWhatsAppForQuiz(currentViewQuiz);
     setCopyStatus('copied');
     setTimeout(() => setCopyStatus('idle'), 3000);
   };
 
   // Copy WhatsApp summary for any specific quiz
-  const handleCopyWhatsAppForQuiz = (q: Quiz) => {
+  const handleCopyWhatsAppForQuiz = (q?: Quiz | null) => {
+    if (!q) return;
     const qResults = results.filter((r) => r.quizId === q.id);
     const sorted = [...qResults].sort((a, b) => b.score - a.score || a.durationSeconds - b.durationSeconds);
     const completedIds = new Set(qResults.map((r) => r.studentId));
     const missing = students.filter((s) => !completedIds.has(s.id));
 
-    let text = `📊 ${q.subjectName} - ${q.topic} Testi Sonuçları (${formatQuizDate(q.createdAt)}):\n`;
+    let text = `📊 ${q.subjectName || 'Ders'} - ${q.topic || 'Konu'} Testi Sonuçları (${formatQuizDate(q.createdAt)}):\n`;
 
     if (sorted.length === 0) {
       text += `Henüz sınava katılan öğrenci bulunmamaktadır.\n`;
@@ -711,17 +719,22 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     text += `\n\n🔗 Sınav Linki: ${getStudentExamUrl(q.id)}`;
 
     navigator.clipboard.writeText(text);
-    setQuizActionToast(`"${q.topic}" WhatsApp sonuç özeti panoya kopyalandı!`);
+    setQuizActionToast(`"${q.topic || 'Sınav'}" WhatsApp sonuç özeti panoya kopyalandı!`);
     setTimeout(() => setQuizActionToast(null), 3500);
   };
 
   // Export to Excel / CSV with UTF-8 BOM for currently viewed quiz
   const handleExportCSV = () => {
+    if (!currentViewQuiz) {
+      alert('İndirilecek bir sınav bulunamadı.');
+      return;
+    }
     handleExportCSVForQuiz(currentViewQuiz);
   };
 
   // Export to Excel / CSV for any specific quiz
-  const handleExportCSVForQuiz = (q: Quiz) => {
+  const handleExportCSVForQuiz = (q?: Quiz | null) => {
+    if (!q) return;
     const qResults = results.filter((r) => r.quizId === q.id);
     const sorted = [...qResults].sort((a, b) => b.score - a.score);
     const completedIds = new Set(qResults.map((r) => r.studentId));
@@ -745,7 +758,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const safeTopic = `${q.subjectName}_${q.topic}`.replace(/[^a-zA-Z0-9_\u00C0-\u017F]/g, '_');
+    const safeTopic = `${q.subjectName || 'Ders'}_${q.topic || 'Konu'}`.replace(/[^a-zA-Z0-9_\u00C0-\u017F]/g, '_');
     link.setAttribute('download', `${safeTopic}_Sonuclari.csv`);
     document.body.appendChild(link);
     link.click();
@@ -754,10 +767,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // Clear results for currently viewed exam
   const handleClearResults = () => {
+    if (!currentViewQuiz) return;
     Storage.clearQuizResults(currentViewQuiz.id);
     refreshData();
     setShowClearConfirm(false);
-    setQuizActionToast(`"${currentViewQuiz.topic}" sınavının sonuçları temizlendi.`);
+    setQuizActionToast(`"${currentViewQuiz.topic || 'Sınav'}" sınavının sonuçları temizlendi.`);
     setTimeout(() => setQuizActionToast(null), 3000);
   };
 
@@ -1153,19 +1167,23 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <Play className="w-4 h-4 fill-current" />
                   <span>Bu Sınavı Aktif Sınav Yap</span>
                 </button>
-                <button
-                  onClick={() => setSelectedQuizId(activeQuiz.id)}
-                  id="results-return-active-btn"
-                  className="bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 font-bold text-xs px-3.5 py-2.5 rounded-xl transition-colors cursor-pointer"
-                >
-                  Aktif Sınava Dön
-                </button>
+                {activeQuiz && (
+                  <button
+                    onClick={() => setSelectedQuizId(activeQuiz.id)}
+                    id="results-return-active-btn"
+                    className="bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 font-bold text-xs px-3.5 py-2.5 rounded-xl transition-colors cursor-pointer"
+                  >
+                    Aktif Sınava Dön
+                  </button>
+                )}
               </div>
             </div>
           )}
 
-          {/* Quick Stats Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Quick Stats Grid & Results only if currentViewQuiz exists */}
+          {currentViewQuiz && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Participation */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
               <div className="flex items-center justify-between text-slate-400 mb-2">
@@ -1479,6 +1497,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-6">
               {renderQuizQuestionsAccordion(currentViewQuiz)}
             </div>
+          )}
+            </>
           )}
         </div>
       )}
@@ -2289,55 +2309,69 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           </div>
 
           {/* YEŞİL RENKLİ BÜYÜK "VELİ GRUBU İÇİN MESAJI KOPYALA" ALANI */}
-          <div className="bg-emerald-50/90 border-2 border-emerald-300 rounded-3xl p-6 sm:p-8 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <div className="inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full mb-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Aktif Sınav: {activeQuiz.subjectName} - {activeQuiz.topic}</span>
+          {activeQuiz ? (
+            <div className="bg-emerald-50/90 border-2 border-emerald-300 rounded-3xl p-6 sm:p-8 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full mb-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Aktif Sınav: {activeQuiz.subjectName} - {activeQuiz.topic}</span>
+                  </div>
+                  <h4 className="text-lg sm:text-xl font-black text-slate-800 font-['Plus_Jakarta_Sans',sans-serif]">
+                    Veli Grubu İçin Hazır Mesajı Kopyala
+                  </h4>
+                  <p className="text-xs text-slate-600 mt-1 max-w-xl">
+                    Öğrencilerinizin sınava başlayabilmesi için aşağıdaki yeşil butona basarak hazır WhatsApp / Telegram duyuru mesajını tek tıkla kopyalayabilirsiniz.
+                  </p>
                 </div>
-                <h4 className="text-lg sm:text-xl font-black text-slate-800 font-['Plus_Jakarta_Sans',sans-serif]">
-                  Veli Grubu İçin Hazır Mesajı Kopyala
-                </h4>
-                <p className="text-xs text-slate-600 mt-1 max-w-xl">
-                  Öğrencilerinizin sınava başlayabilmesi için aşağıdaki yeşil butona basarak hazır WhatsApp / Telegram duyuru mesajını tek tıkla kopyalayabilirsiniz.
-                </p>
+
+                {/* BÜYÜK YEŞİL BUTON */}
+                <button
+                  onClick={() => handleCopyParentMessage(activeQuiz)}
+                  id="parent-share-big-green-btn"
+                  className="w-full sm:w-auto shrink-0 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black text-sm sm:text-base py-4 px-7 rounded-2xl shadow-lg shadow-emerald-600/30 transition-all transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {parentMsgCopied ? (
+                    <>
+                      <CheckCircle2 className="w-5 h-5 text-emerald-200" />
+                      <span>Mesaj Kopyalandı! ✅</span>
+                    </>
+                  ) : (
+                    <>
+                      <Share2 className="w-5 h-5" />
+                      <span>Veli Grubu İçin Mesajı Kopyala 📋</span>
+                    </>
+                  )}
+                </button>
               </div>
 
-              {/* BÜYÜK YEŞİL BUTON */}
-              <button
-                onClick={handleCopyParentMessage}
-                id="parent-share-big-green-btn"
-                className="w-full sm:w-auto shrink-0 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black text-sm sm:text-base py-4 px-7 rounded-2xl shadow-lg shadow-emerald-600/30 transition-all transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {parentMsgCopied ? (
-                  <>
-                    <CheckCircle2 className="w-5 h-5 text-emerald-200" />
-                    <span>Mesaj Kopyalandı! ✅</span>
-                  </>
-                ) : (
-                  <>
-                    <Share2 className="w-5 h-5" />
-                    <span>Veli Grubu İçin Mesajı Kopyala 📋</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Hazır Metin Önizlemesi */}
-            <div className="bg-white border border-emerald-200 rounded-2xl p-4 text-xs font-mono text-slate-800 leading-relaxed whitespace-pre-wrap select-all shadow-inner">
+              {/* Hazır Metin Önizlemesi */}
+              <div className="bg-white border border-emerald-200 rounded-2xl p-4 text-xs font-mono text-slate-800 leading-relaxed whitespace-pre-wrap select-all shadow-inner">
 {`Değerli Velilerimiz ve Sevgili Öğrencilerim,
-${activeQuiz.subjectName} dersi '${activeQuiz.topic}' pekiştirme testimiz hazırdır. Aşağıdaki linke tıklayarak listeden adınızı seçip teste başlayabilirsiniz:
-🔗 Sınav Linki: ${getStudentExamUrl()}`}
-            </div>
-
-            {parentMsgCopied && (
-              <div className="p-3 bg-emerald-100 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-900 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Mesaj panoya kopyalandı! Şimdi WhatsApp veli grubunuza yapıştırabilirsiniz (Ctrl+V).</span>
+${activeQuiz.subjectName || 'Ders'} dersi '${activeQuiz.topic || 'Konu'}' pekiştirme testimiz hazırdır. Aşağıdaki linke tıklayarak listeden adınızı seçip teste başlayabilirsiniz:
+🔗 Sınav Linki: ${getStudentExamUrl(activeQuiz.id)}`}
               </div>
-            )}
-          </div>
+
+              {parentMsgCopied && (
+                <div className="p-3 bg-emerald-100 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-900 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Mesaj panoya kopyalandı! Şimdi WhatsApp veli grubunuza yapıştırabilirsiniz (Ctrl+V).</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 text-center max-w-2xl mx-auto space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+                <PauseCircle className="w-6 h-6" />
+              </div>
+              <h4 className="text-base font-extrabold text-slate-800">
+                Şu Anda Yayında Aktif Sınav Yok
+              </h4>
+              <p className="text-xs text-slate-600 max-w-md mx-auto">
+                Yukarıdaki menüden MEB müfredatı veya PDF ile 20 soruluk yeni bir sınav oluşturduğunuzda, sınav otomatik olarak öğrencilerin ekranına verilecek ve veli paylaşım linki burada hazır olacaktır.
+              </p>
+            </div>
+          )}
 
           {/* Generated Questions Preview */}
           <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-6 sm:p-8 space-y-4">
@@ -2349,7 +2383,7 @@ ${activeQuiz.subjectName} dersi '${activeQuiz.topic}' pekiştirme testimiz hazı
                 </span>
               </h4>
               <span className="text-xs text-slate-500 font-medium">
-                Aktif Test: <strong className="text-slate-800">{activeQuiz.topic}</strong>
+                Aktif Test: <strong className="text-slate-800">{activeQuiz?.topic || 'Hazırlanan Test'}</strong>
               </span>
             </div>
 
@@ -2545,7 +2579,9 @@ ${activeQuiz.subjectName} dersi '${activeQuiz.topic}' pekiştirme testimiz hazı
             <div className="space-y-3 pt-2">
               <h4 className="text-xs font-extrabold text-slate-700 uppercase">Soru Soru Yanıtlar:</h4>
               {selectedStudentDetail.answers.map((ans, idx) => {
-                const questionObj = activeQuiz.questions.find((q) => q.id === ans.questionId);
+                const studentQuiz =
+                  allQuizzes.find((q) => q.id === selectedStudentDetail.quizId) || currentViewQuiz || activeQuiz;
+                const questionObj = (studentQuiz?.questions || []).find((q) => q.id === ans.questionId);
                 return (
                   <div
                     key={ans.questionId}
@@ -2558,7 +2594,7 @@ ${activeQuiz.subjectName} dersi '${activeQuiz.topic}' pekiştirme testimiz hazı
                     }`}
                   >
                     <div className="flex items-center justify-between font-bold">
-                      <span>Soru {idx + 1}: {questionObj?.question}</span>
+                      <span>Soru {idx + 1}: {questionObj?.question || `Soru ${ans.questionId}`}</span>
                       <span className="shrink-0 text-[11px] px-2 py-0.5 rounded-full font-black">
                         {ans.isCorrect ? '✅ Doğru' : ans.selectedOption === null ? '⚪ Boş' : '❌ Yanlış'}
                       </span>
@@ -2566,7 +2602,7 @@ ${activeQuiz.subjectName} dersi '${activeQuiz.topic}' pekiştirme testimiz hazı
 
                     <div className="flex gap-4 text-[11px] pt-1">
                       <span>Öğrencinin Yanıtı: <strong>{ans.selectedOption || 'İşaretlenmedi'}</strong></span>
-                      <span>Doğru Cevap: <strong className="text-emerald-700">{questionObj?.correctAnswer}</strong></span>
+                      <span>Doğru Cevap: <strong className="text-emerald-700">{questionObj?.correctAnswer || '-'}</strong></span>
                     </div>
                   </div>
                 );

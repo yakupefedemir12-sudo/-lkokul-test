@@ -243,21 +243,21 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
   }
 
   // Current question data
-  const currentQuestion = activeQuiz.questions[currentQuestionIndex] || activeQuiz.questions[0];
-  const totalQuestions = activeQuiz.questions.length;
+  const currentQuestion = activeQuiz?.questions?.[currentQuestionIndex] || activeQuiz?.questions?.[0];
+  const totalQuestions = activeQuiz?.questions?.length || 0;
   const answeredCount = Object.keys(answers).length;
-  const emptyCount = totalQuestions - answeredCount;
+  const emptyCount = Math.max(0, totalQuestions - answeredCount);
 
   // Submit test
   const handleConfirmFinish = async () => {
-    if (!selectedStudent) return;
+    if (!selectedStudent || !activeQuiz) return;
 
     // Calculate score
     let correct = 0;
     let wrong = 0;
     let empty = 0;
 
-    const detailedAnswers: StudentAnswer[] = activeQuiz.questions.map((q) => {
+    const detailedAnswers: StudentAnswer[] = (activeQuiz?.questions || []).map((q) => {
       const selected = answers[q.id] || null;
       if (!selected) {
         empty++;
@@ -279,16 +279,16 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
       };
     });
 
-    const calculatedScore = Math.round((correct / totalQuestions) * 100);
+    const calculatedScore = totalQuestions > 0 ? Math.round((correct / totalQuestions) * 100) : 0;
 
     const newResult: ExamResult = {
       id: `res-${Date.now()}-${selectedStudent.id}`,
-      quizId: activeQuiz.id,
+      quizId: activeQuiz?.id || '',
       studentId: selectedStudent.id,
       studentNo: selectedStudent.no,
       studentName: selectedStudent.name,
-      subjectName: activeQuiz.subjectName,
-      topic: activeQuiz.topic,
+      subjectName: activeQuiz.subjectName || 'Ders',
+      topic: activeQuiz.topic || 'Konu',
       totalQuestions,
       correctCount: correct,
       wrongCount: wrong,
@@ -355,10 +355,10 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-2 font-['Plus_Jakarta_Sans',sans-serif]">
-            {activeQuiz.subjectName} Sınavına Hoş Geldin!
+            {activeQuiz?.subjectName || 'Ders'} Sınavına Hoş Geldin!
           </h2>
           <p className="text-sm font-semibold text-slate-600 mb-6">
-            Konu: <span className="text-amber-600 font-extrabold">{activeQuiz.topic}</span>
+            Konu: <span className="text-amber-600 font-extrabold">{activeQuiz?.topic || 'Konu'}</span>
           </p>
 
           {/* Info Card */}
@@ -479,7 +479,7 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
     }
 
     // Filter questions according to reviewFilter
-    const filteredQuestions = activeQuiz.questions.filter((q) => {
+    const filteredQuestions = (activeQuiz?.questions || []).filter((q) => {
       const studentAns = result.answers?.find((a) => a.questionId === q.id);
       const isCorrect = studentAns?.isCorrect === true;
 
@@ -900,7 +900,7 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
           <div>
             <h3 className="font-black text-slate-800 text-sm">{selectedStudent?.name}</h3>
             <p className="text-xs text-slate-500 font-medium">
-              {activeQuiz.subjectName} • {activeQuiz.topic}
+              {activeQuiz?.subjectName || 'Ders'} • {activeQuiz?.topic || 'Konu'}
             </p>
           </div>
         </div>
@@ -934,7 +934,7 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
       <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
         <div
           className="bg-linear-to-r from-amber-400 to-orange-500 h-full rounded-full transition-all duration-300"
-          style={{ width: `${((currentQuestionIndex + 1) / totalQuestions) * 100}%` }}
+          style={{ width: `${totalQuestions > 0 ? ((currentQuestionIndex + 1) / totalQuestions) * 100 : 0}%` }}
         ></div>
       </div>
 
@@ -945,7 +945,7 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
           <span className="text-[11px] text-emerald-600">Yeşil: Cevaplandı</span>
         </div>
         <div className="grid grid-cols-10 sm:grid-cols-20 gap-1 sm:gap-1.5">
-          {activeQuiz.questions.map((q, idx) => {
+          {(activeQuiz?.questions || []).map((q, idx) => {
             const isAnswered = !!answers[q.id];
             const isCurrent = idx === currentQuestionIndex;
 
