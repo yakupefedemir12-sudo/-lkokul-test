@@ -393,7 +393,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       setIsAuthenticated(true);
       setAuthError('');
     } else {
-      setAuthError('Hatalı şifre! Lütfen kontrol ediniz. (Şifre: ogretmen123)');
+      setAuthError('Hatalı şifre! Lütfen kontrol ediniz.');
     }
   };
 
