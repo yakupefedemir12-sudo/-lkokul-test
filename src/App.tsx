@@ -14,7 +14,7 @@ export default function App() {
     return m === 'teacher' ? 'teacher' : 'student';
   });
 
-  const [activeQuiz, setActiveQuiz] = useState<Quiz>(() => Storage.getActiveQuiz());
+  const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(() => Storage.getActiveQuiz());
   const [students, setStudents] = useState<Student[]>(() => Storage.getStudents());
   const [results, setResults] = useState<ExamResult[]>(() => Storage.getResults());
   
@@ -60,9 +60,7 @@ export default function App() {
         } else {
           // If no specific quizId in URL, fetch the latest active quiz from server
           const serverActive = await Storage.fetchServerActiveQuiz();
-          if (serverActive) {
-            setActiveQuiz(serverActive);
-          }
+          setActiveQuiz(serverActive);
         }
 
         // Also sync results across devices
@@ -82,7 +80,11 @@ export default function App() {
     const url = new URL(window.location.href);
     url.searchParams.set('mode', newMode);
     if (newMode === 'student' && !url.searchParams.has('quizId')) {
-      url.searchParams.set('quizId', activeQuiz.id);
+      if (activeQuiz) {
+        url.searchParams.set('quizId', activeQuiz.id);
+      } else {
+        url.searchParams.delete('quizId');
+      }
     }
     window.history.pushState({}, '', url.toString());
   };
@@ -106,7 +108,9 @@ export default function App() {
   const currentStudentQuiz = (mode === 'student' && specificQuiz) ? specificQuiz : activeQuiz;
 
   // Current quiz results count
-  const currentQuizResults = results.filter((r) => r.quizId === (mode === 'student' ? currentStudentQuiz.id : activeQuiz.id));
+  const currentQuizResults = currentStudentQuiz 
+    ? results.filter((r) => r.quizId === currentStudentQuiz.id)
+    : [];
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100/60 font-['Plus_Jakarta_Sans',sans-serif]">

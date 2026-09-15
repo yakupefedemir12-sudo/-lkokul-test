@@ -50,18 +50,9 @@ interface ServerQuizItem {
   questions: any[];
 }
 
-let serverActiveQuiz: ServerQuizItem = {
-  id: "quiz-meb-4-default",
-  title: "Matematik 4. Sınıf - Doğal Sayılar ve Basamak Değeri Değerlendirme Testi",
-  subjectId: "matematik",
-  subjectName: "Matematik",
-  topic: "Doğal Sayılar ve Basamak Değeri",
-  createdAt: new Date().toISOString(),
-  questions: getFallbackQuestions("Matematik", "Doğal Sayılar ve Basamak Değeri"),
-};
+let serverActiveQuiz: ServerQuizItem | null = null;
 
 const serverQuizzesMap = new Map<string, ServerQuizItem>();
-serverQuizzesMap.set(serverActiveQuiz.id, serverActiveQuiz);
 
 const serverResultsMap = new Map<string, any>(); // key: `${quizId}_${studentId}`
 
@@ -73,10 +64,20 @@ app.get("/api/active-quiz", (req, res) => {
   });
 });
 
-// POST: Update Current Active Quiz on Server
+// POST: Update Current Active Quiz on Server (supports null / unpublishing)
 app.post("/api/active-quiz", (req, res) => {
   const { quiz } = req.body;
-  if (!quiz || !quiz.id || !Array.isArray(quiz.questions) || quiz.questions.length === 0) {
+  if (quiz === null || quiz === undefined) {
+    serverActiveQuiz = null;
+    console.log(`[Sunucu] Aktif sınav yayından kaldırıldı (boş durum).`);
+    return res.json({
+      success: true,
+      message: "Aktif sınav yayından kaldırıldı.",
+      quiz: null,
+    });
+  }
+
+  if (!quiz.id || !Array.isArray(quiz.questions) || quiz.questions.length === 0) {
     return res.status(400).json({
       error: "Geçersiz veya eksik sınav nesnesi.",
     });
@@ -90,6 +91,17 @@ app.post("/api/active-quiz", (req, res) => {
     success: true,
     message: "Aktif sınav sunucuda başarıyla güncellendi.",
     quiz: serverActiveQuiz,
+  });
+});
+
+// DELETE: Deactivate / Unpublish Active Quiz
+app.delete("/api/active-quiz", (req, res) => {
+  serverActiveQuiz = null;
+  console.log(`[Sunucu] Aktif sınav silindi/yayından kaldırıldı.`);
+  res.json({
+    success: true,
+    message: "Aktif sınav yayından kaldırıldı.",
+    quiz: null,
   });
 });
 
@@ -112,6 +124,16 @@ app.get("/api/quizzes/:id", (req, res) => {
     success: true,
     quiz,
   });
+});
+
+// DELETE: Delete Quiz from Server Archive
+app.delete("/api/quizzes/:id", (req, res) => {
+  const { id } = req.params;
+  serverQuizzesMap.delete(id);
+  if (serverActiveQuiz && serverActiveQuiz.id === id) {
+    serverActiveQuiz = null;
+  }
+  res.json({ success: true });
 });
 
 // POST: Register or Update Quiz in Server Archive

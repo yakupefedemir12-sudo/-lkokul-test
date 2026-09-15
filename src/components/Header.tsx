@@ -5,7 +5,7 @@ import { BookOpen, GraduationCap, Users, Sparkles, ExternalLink, CheckCircle2 } 
 interface HeaderProps {
   mode: AppMode;
   setMode: (mode: AppMode) => void;
-  activeQuiz: Quiz;
+  activeQuiz?: Quiz | null;
   resultsCount: number;
   totalStudents: number;
 }
@@ -22,7 +22,11 @@ export const Header: React.FC<HeaderProps> = ({
   const copyStudentLink = () => {
     const url = new URL(window.location.href);
     url.searchParams.set('mode', 'student');
-    url.searchParams.set('quizId', activeQuiz.id);
+    if (activeQuiz) {
+      url.searchParams.set('quizId', activeQuiz.id);
+    } else {
+      url.searchParams.delete('quizId');
+    }
     navigator.clipboard.writeText(url.toString());
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
@@ -84,12 +88,19 @@ export const Header: React.FC<HeaderProps> = ({
                   v4.0
                 </span>
               </div>
-              <p className="text-xs text-slate-500 flex items-center gap-1.5 truncate max-w-[260px] sm:max-w-md">
-                <span className="font-semibold text-slate-700">{activeQuiz.subjectName}:</span>
-                <span className="truncate">{activeQuiz.topic}</span>
-                <span className="text-slate-300">•</span>
-                <span className="text-emerald-600 font-semibold">{activeQuiz.questions.length} Soru</span>
-              </p>
+              {activeQuiz ? (
+                <p className="text-xs text-slate-500 flex items-center gap-1.5 truncate max-w-[260px] sm:max-w-md">
+                  <span className="font-semibold text-slate-700">{activeQuiz.subjectName}:</span>
+                  <span className="truncate">{activeQuiz.topic}</span>
+                  <span className="text-slate-300">•</span>
+                  <span className="text-emerald-600 font-semibold">{activeQuiz.questions.length} Soru</span>
+                </p>
+              ) : (
+                <p className="text-xs text-amber-600 font-bold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse inline-block" />
+                  <span>Şu anda yayında aktif bir sınav yok</span>
+                </p>
+              )}
             </div>
           </div>
 

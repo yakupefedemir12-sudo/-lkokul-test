@@ -24,10 +24,11 @@ import {
   Check,
   X,
   Lock,
+  GraduationCap,
 } from 'lucide-react';
 
 interface StudentExamScreenProps {
-  quiz: Quiz;
+  quiz: Quiz | null;
   students: Student[];
   results: ExamResult[];
   refreshData: () => void;
@@ -101,11 +102,12 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
   // Completed student results mapped by studentId
   const studentResultMap = useMemo(() => {
     const map = new Map<string, ExamResult>();
+    if (!activeQuiz) return map;
     results
       .filter((r) => r.quizId === activeQuiz.id)
       .forEach((r) => map.set(r.studentId, r));
     return map;
-  }, [results, activeQuiz.id]);
+  }, [results, activeQuiz?.id]);
 
   const completedStudentIds = useMemo(() => {
     return new Set(studentResultMap.keys());
@@ -171,6 +173,74 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
       [questionId]: optionKey,
     }));
   };
+
+  // Loading state
+  if (isLoadingUrlQuiz) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-20 text-center">
+        <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-sm font-bold text-slate-700">Sınav bilgileri yükleniyor...</p>
+      </div>
+    );
+  }
+
+  // Waiting screen if no active quiz is published
+  if (!activeQuiz) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-8 sm:py-16 animate-in fade-in zoom-in-95 duration-300">
+        <div className="bg-white rounded-3xl border border-amber-200/90 shadow-xl shadow-amber-500/5 p-8 sm:p-12 text-center relative overflow-hidden">
+          {/* Top subtle bar */}
+          <div className="absolute top-0 left-0 right-0 h-2 bg-linear-to-r from-amber-400 via-orange-400 to-amber-500" />
+
+          {/* Child-friendly Mascot / Education Icon */}
+          <div className="w-20 h-20 rounded-3xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-6 shadow-md shadow-amber-500/10">
+            <GraduationCap className="w-10 h-10 text-amber-600" />
+          </div>
+
+          <div className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-800 text-xs font-black px-3.5 py-1 rounded-full mb-4">
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <span>4. Sınıf Sınav Portalı</span>
+          </div>
+
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-3 font-['Plus_Jakarta_Sans',sans-serif]">
+            👋 Sevgili Öğrencimiz,
+          </h2>
+
+          <p className="text-base sm:text-lg font-bold text-slate-700 leading-relaxed mb-3">
+            Şu anda öğretmeniniz tarafından yayınlanmış aktif bir sınav bulunmamaktadır.
+          </p>
+
+          <p className="text-sm text-slate-500 leading-relaxed max-w-lg mx-auto mb-8">
+            Yeni bir sınav başlatıldığında öğretmeninizin paylaştığı linkten katılabilirsiniz.
+          </p>
+
+          <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-left max-w-lg mx-auto mb-8">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 mt-0.5 font-bold">
+                💡
+              </div>
+              <div className="text-xs text-slate-600 leading-relaxed">
+                <strong className="text-slate-800 font-bold block mb-0.5">Sınav başladığında ne yapacaksın?</strong>
+                Öğretmeniniz yeni bir değerlendirme sınavı başlattığında veli grubunda veya sınıfta sınav linkini paylaşacaktır. Linke tıkladığında listeden adını seçerek soruları hemen çözmeye başlayabilirsin.
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              refreshData();
+              window.location.reload();
+            }}
+            id="student-waiting-refresh-btn"
+            className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-extrabold px-6 py-3.5 rounded-2xl text-sm transition-all shadow-md shadow-amber-500/20 cursor-pointer hover:scale-105 active:scale-95"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Sayfayı Yenile / Kontrol Et</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Current question data
   const currentQuestion = activeQuiz.questions[currentQuestionIndex] || activeQuiz.questions[0];

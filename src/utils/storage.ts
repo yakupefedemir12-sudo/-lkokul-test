@@ -21,44 +21,29 @@ const DEFAULT_QUIZ: Quiz = {
 };
 
 export const Storage = {
-  getActiveQuiz(): Quiz {
+  getActiveQuiz(): Quiz | null {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.ACTIVE_QUIZ);
       if (!data) {
-        this.setActiveQuiz(DEFAULT_QUIZ);
-        return DEFAULT_QUIZ;
+        return null;
       }
       const parsed = JSON.parse(data);
-
-      // Check if existing stored quiz contains old loop artifact "(Kazanım Alıştırması" or invalid questions
-      const hasCorruptedLoop = parsed?.questions?.some((q: any) =>
-        typeof q?.question === 'string' && q.question.includes('Kazanım Alıştırması')
-      );
-
-      if (hasCorruptedLoop || !Array.isArray(parsed?.questions) || parsed.questions.length < 20) {
-        const freshQuestions = getFallbackQuestions(
-          parsed?.subjectName || 'Matematik',
-          parsed?.topic || 'Doğal Sayılar ve Basamak Değeri'
-        );
-        const fixedQuiz: Quiz = {
-          ...parsed,
-          questions: freshQuestions,
-        };
-        this.setActiveQuiz(fixedQuiz);
-        return fixedQuiz;
+      if (!parsed || !parsed.id || !Array.isArray(parsed?.questions) || parsed.questions.length === 0) {
+        return null;
       }
-
-      // Ensure active quiz is also in archive
-      this.saveQuizToArchive(parsed, false);
-
       return parsed;
     } catch {
-      return DEFAULT_QUIZ;
+      return null;
     }
   },
 
-  setActiveQuiz(quiz: Quiz): void {
+  setActiveQuiz(quiz: Quiz | null): void {
     try {
+      if (!quiz) {
+        this.clearActiveQuiz();
+        return;
+      }
+
       localStorage.setItem(STORAGE_KEYS.ACTIVE_QUIZ, JSON.stringify(quiz));
       this.saveQuizToArchive(quiz, false);
       window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.ACTIVE_QUIZ } }));
@@ -74,19 +59,38 @@ export const Storage = {
     }
   },
 
+  clearActiveQuiz(): void {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_QUIZ);
+      window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.ACTIVE_QUIZ } }));
+
+      fetch('/api/active-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quiz: null }),
+      }).catch((err) => console.warn('Sunucu aktif sınav sıfırlama uyarısı:', err));
+    } catch (e) {
+      console.error('Failed to clear active quiz:', e);
+    }
+  },
+
   getQuizzesArchive(): Quiz[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.QUIZZES_ARCHIVE);
       if (!data) {
-        const initial = [DEFAULT_QUIZ];
-        localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(initial));
-        return initial;
+        // If first time loaded and never initialized
+        const isSeeded = localStorage.getItem('meb4_seeded');
+        if (!isSeeded) {
+          localStorage.setItem('meb4_seeded', 'true');
+          const initial = [DEFAULT_QUIZ];
+          localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(initial));
+          return initial;
+        }
+        return [];
       }
       const parsed = JSON.parse(data);
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        const initial = [DEFAULT_QUIZ];
-        localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(initial));
-        return initial;
+      if (!Array.isArray(parsed)) {
+        return [];
       }
 
       // Sort by createdAt descending (newest first)
@@ -96,7 +100,7 @@ export const Storage = {
         return timeB - timeA;
       });
     } catch {
-      return [DEFAULT_QUIZ];
+      return [];
     }
   },
 
@@ -137,11 +141,18 @@ export const Storage = {
       const res = await fetch('/api/active-quiz');
       if (!res.ok) return null;
       const data = await res.json();
-      if (data.success && data.quiz && Array.isArray(data.quiz.questions) && data.quiz.questions.length > 0) {
-        localStorage.setItem(STORAGE_KEYS.ACTIVE_QUIZ, JSON.stringify(data.quiz));
-        this.saveQuizToArchive(data.quiz, false);
-        window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.ACTIVE_QUIZ } }));
-        return data.quiz;
+      if (data.success) {
+        if (!data.quiz) {
+          localStorage.removeItem(STORAGE_KEYS.ACTIVE_QUIZ);
+          window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.ACTIVE_QUIZ } }));
+          return null;
+        }
+        if (Array.isArray(data.quiz.questions) && data.quiz.questions.length > 0) {
+          localStorage.setItem(STORAGE_KEYS.ACTIVE_QUIZ, JSON.stringify(data.quiz));
+          this.saveQuizToArchive(data.quiz, false);
+          window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.ACTIVE_QUIZ } }));
+          return data.quiz;
+        }
       }
       return null;
     } catch {
@@ -203,17 +214,18 @@ export const Storage = {
 
   deleteQuiz(quizId: string): void {
     try {
-      let archive = this.getQuizzesArchive().filter((q) => q.id !== quizId);
-      if (archive.length === 0) {
-        archive = [DEFAULT_QUIZ];
-      }
+      const archive = this.getQuizzesArchive().filter((q) => q.id !== quizId);
       localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(archive));
       this.clearQuizResults(quizId);
 
-      // If deleted quiz was active quiz, switch active to the first remaining quiz
+      // Also notify server archive
+      fetch(`/api/quizzes/${encodeURIComponent(quizId)}`, { method: 'DELETE' })
+        .catch((err) => console.warn('Server delete quiz error:', err));
+
+      // If deleted quiz was active quiz, clear active quiz to null!
       const currentActive = this.getActiveQuiz();
-      if (currentActive.id === quizId) {
-        this.setActiveQuiz(archive[0]);
+      if (currentActive && currentActive.id === quizId) {
+        this.clearActiveQuiz();
       } else {
         window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.QUIZZES_ARCHIVE } }));
       }

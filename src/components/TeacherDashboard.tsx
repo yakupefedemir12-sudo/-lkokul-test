@@ -36,11 +36,12 @@ import {
   ChevronDown,
   ChevronUp,
   Lightbulb,
+  PauseCircle,
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
-  activeQuiz: Quiz;
-  setActiveQuiz: (quiz: Quiz) => void;
+  activeQuiz: Quiz | null;
+  setActiveQuiz: (quiz: Quiz | null) => void;
   students: Student[];
   setStudents: (students: Student[]) => void;
   results: ExamResult[];
@@ -64,7 +65,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [activeTab, setActiveTab] = useState<'results' | 'archive' | 'create_quiz' | 'students'>('results');
 
   // Archive & Selected Quiz State
-  const [selectedQuizId, setSelectedQuizId] = useState<string>(activeQuiz.id);
+  const [selectedQuizId, setSelectedQuizId] = useState<string>(activeQuiz?.id || '');
   const [archiveSubjectFilter, setArchiveSubjectFilter] = useState<'all' | SubjectId>('all');
   const [archiveSearchQuery, setArchiveSearchQuery] = useState<string>('');
   const [newQuizNotice, setNewQuizNotice] = useState<boolean>(false);
@@ -87,19 +88,27 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // Current viewed quiz (either active or historical)
   const currentViewQuiz = useMemo(() => {
-    return allQuizzes.find((q) => q.id === selectedQuizId) || activeQuiz;
+    if (selectedQuizId) {
+      const found = allQuizzes.find((q) => q.id === selectedQuizId);
+      if (found) return found;
+    }
+    if (activeQuiz) return activeQuiz;
+    if (allQuizzes.length > 0) return allQuizzes[0];
+    return null;
   }, [allQuizzes, selectedQuizId, activeQuiz]);
 
-  const isViewingActive = currentViewQuiz.id === activeQuiz.id;
+  const isViewingActive = !!(activeQuiz && currentViewQuiz && currentViewQuiz.id === activeQuiz.id);
 
   const pastQuizzes = useMemo(() => {
+    if (!activeQuiz) return allQuizzes;
     return allQuizzes.filter((q) => q.id !== activeQuiz.id);
-  }, [allQuizzes, activeQuiz.id]);
+  }, [allQuizzes, activeQuiz?.id]);
 
   // Results for the currently viewed quiz
   const viewingResults = useMemo(() => {
+    if (!currentViewQuiz) return [];
     return results.filter((r) => r.quizId === currentViewQuiz.id);
-  }, [results, currentViewQuiz.id]);
+  }, [results, currentViewQuiz?.id]);
 
   const filteredQuizzes = useMemo(() => {
     return allQuizzes.filter((q) => {
@@ -140,7 +149,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [customTeacherNote, setCustomTeacherNote] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationSource, setGenerationSource] = useState<string | null>(null);
-  const [previewQuestions, setPreviewQuestions] = useState(activeQuiz.questions);
+  const [previewQuestions, setPreviewQuestions] = useState(() => activeQuiz?.questions || getFallbackQuestions('Matematik', MEB_CURRICULUM[0].topics[0]));
   const [justGenerated, setJustGenerated] = useState(false);
 
   // Student Manager state
@@ -175,13 +184,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // Helper to generate full student exam URL with specific quizId
   const getStudentExamUrl = (quizId?: string) => {
-    const targetId = quizId || currentViewQuiz.id;
+    const targetId = quizId || currentViewQuiz?.id || activeQuiz?.id || '';
     return `${window.location.origin}/?mode=student&quizId=${encodeURIComponent(targetId)}`;
   };
 
   // Helper to copy the parent group message for any quiz or the current viewed quiz
   const handleCopyParentMessage = (targetQuiz?: Quiz) => {
     const q = targetQuiz || currentViewQuiz;
+    if (!q) return;
     const link = getStudentExamUrl(q.id);
     const text = `Değerli Velilerimiz ve Sevgili Öğrencilerim,\n${q.subjectName} dersi '${q.topic}' pekiştirme testimiz hazırdır. Aşağıdaki linke tıklayarak listeden adınızı seçip doğrudan teste başlayabilirsiniz:\n🔗 Sınav Linki: ${link}`;
 
@@ -200,9 +210,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     refreshData();
   };
 
+  // Helper to unpublish/deactivate active quiz
+  const handleUnpublishQuiz = (quizToDeactivate?: Quiz) => {
+    Storage.clearActiveQuiz();
+    setActiveQuiz(null);
+    setQuizActionToast('Sınav yayından kaldırıldı. Öğrenci ekranı bekleme moduna alındı.');
+    setTimeout(() => setQuizActionToast(null), 4000);
+    refreshData();
+  };
+
   // Helper for "Yeni Sınav Başlat" button
   const handleStartNewQuizFlow = () => {
-    Storage.saveQuizToArchive(activeQuiz);
+    if (activeQuiz) {
+      Storage.saveQuizToArchive(activeQuiz);
+    }
     setActiveTab('create_quiz');
     setNewQuizNotice(true);
     setTimeout(() => setNewQuizNotice(false), 8000);
@@ -806,69 +827,106 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-3 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className={`w-2.5 h-2.5 rounded-full ${activeQuiz ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-ping'}`}></span>
               <span className="text-xs font-black text-slate-500 uppercase tracking-wider">
                 Öğretmen Yönetim Paneli
               </span>
               <span className="text-slate-300">•</span>
-              {isViewingActive ? (
-                <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-black px-2.5 py-0.5 rounded-full">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                  🟢 Şu Anda Yayında (Aktif Sınav)
-                </span>
+              {activeQuiz ? (
+                isViewingActive ? (
+                  <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-black px-2.5 py-0.5 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    🟢 Şu Anda Yayında (Aktif Sınav)
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-black px-2.5 py-0.5 rounded-full">
+                    <FolderArchive className="w-3 h-3 text-amber-600" />
+                    📁 Arşiv Sınavı İnceleniyor
+                  </span>
+                )
               ) : (
-                <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-black px-2.5 py-0.5 rounded-full">
-                  <FolderArchive className="w-3 h-3 text-amber-600" />
-                  📁 Arşiv Sınavı İnceleniyor
+                <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-900 border border-amber-300 text-[11px] font-black px-2.5 py-0.5 rounded-full">
+                  <PauseCircle className="w-3.5 h-3.5 text-amber-700" />
+                  🔴 Şu Anda Yayında Sınav Yok
                 </span>
               )}
             </div>
 
             <h2 className="text-xl sm:text-2xl font-black text-slate-800 font-['Plus_Jakarta_Sans',sans-serif] mt-1">
-              {currentViewQuiz.title}
+              {currentViewQuiz ? currentViewQuiz.title : 'Şu Anda Yayında Sınav Yok'}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5 font-medium flex items-center gap-2 flex-wrap">
-              <span>Ders: <strong className="text-slate-800">{currentViewQuiz.subjectName}</strong></span>
-              <span>•</span>
-              <span>Konu: <strong className="text-slate-800">{currentViewQuiz.topic}</strong></span>
-              <span>•</span>
-              <span>Tarih: <strong className="text-slate-700">{formatQuizDate(currentViewQuiz.createdAt)}</strong></span>
-              <span>•</span>
-              <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-bold">
-                ID: {currentViewQuiz.id}
-              </span>
-            </p>
+            {currentViewQuiz ? (
+              <p className="text-xs text-slate-500 mt-0.5 font-medium flex items-center gap-2 flex-wrap">
+                <span>Ders: <strong className="text-slate-800">{currentViewQuiz.subjectName}</strong></span>
+                <span>•</span>
+                <span>Konu: <strong className="text-slate-800">{currentViewQuiz.topic}</strong></span>
+                <span>•</span>
+                <span>Tarih: <strong className="text-slate-700">{formatQuizDate(currentViewQuiz.createdAt)}</strong></span>
+                <span>•</span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-bold">
+                  ID: {currentViewQuiz.id}
+                </span>
+              </p>
+            ) : (
+              <p className="text-xs text-amber-700 mt-0.5 font-semibold">
+                Öğrenci ekranı bekleme modunda. Yeni bir sınav başlatarak öğrencilerin erişimine açabilirsiniz.
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-            {/* Veli Grubu İçin Mesajı Kopyala */}
-            <button
-              onClick={handleCopyParentMessage}
-              id="top-copy-parent-msg-btn"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3.5 py-2 rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm shadow-emerald-600/25 cursor-pointer"
-            >
-              {parentMsgCopied ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                  <span>Veli Mesajı Kopyalandı!</span>
-                </>
-              ) : (
-                <>
-                  <Share2 className="w-4 h-4" />
-                  <span>Veli Grubu İçin Mesajı Kopyala</span>
-                </>
-              )}
-            </button>
+            {/* Yayından Kaldır / Durdur Butonu (Eğer şu an yayında aktif bir sınav varsa) */}
+            {isViewingActive && activeQuiz && (
+              <button
+                onClick={() => handleUnpublishQuiz(activeQuiz)}
+                id="top-unpublish-quiz-btn"
+                className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold px-3.5 py-2 rounded-xl text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="Sınavı yayından kaldır / durdur (öğrenciler bekleme ekranına geçer, sınav silinmez)"
+              >
+                <PauseCircle className="w-4 h-4 text-amber-700" />
+                <span>Yayından Kaldır / Durdur</span>
+              </button>
+            )}
 
-            {/* Yeni Sınav Başlat Butonu */}
+            {/* Veli Grubu İçin Mesajı Kopyala */}
+            {currentViewQuiz && (
+              <button
+                onClick={() => handleCopyParentMessage(currentViewQuiz)}
+                id="top-copy-parent-msg-btn"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3.5 py-2 rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm shadow-emerald-600/25 cursor-pointer"
+              >
+                {parentMsgCopied ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                    <span>Veli Mesajı Kopyalandı!</span>
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="w-4 h-4" />
+                    <span>Veli Grubu İçin Mesajı Kopyala</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Yeni Sınav Başlat Butonu (Yayında sınav yokken parlak ve dikkat çekici) */}
             <button
               onClick={handleStartNewQuizFlow}
               id="top-start-new-quiz-btn"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-3.5 py-2 rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm shadow-indigo-600/25 cursor-pointer"
-              title="Mevcut sınavı arşive alıp yeni bir sınav oluştur"
+              className={`font-black px-4 py-2 rounded-xl text-xs transition-all flex items-center gap-2 shadow-sm cursor-pointer ${
+                !activeQuiz
+                  ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/30 ring-4 ring-indigo-200 animate-pulse'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/25'
+              }`}
+              title="Yeni bir sınav oluştur"
             >
               <Plus className="w-4 h-4 stroke-[3]" />
               <span>Yeni Sınav Başlat</span>
+              {!activeQuiz && (
+                <span className="bg-amber-400 text-slate-900 text-[10px] font-black px-1.5 py-0.5 rounded-full">
+                  Önerilen
+                </span>
+              )}
             </button>
 
             {/* Çıkış Yap */}
@@ -903,13 +961,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               }}
               className="bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer w-full sm:w-auto min-w-[240px] max-w-md"
             >
-              <optgroup label="🟢 ŞU ANDA YAYINDAKİ AKTİF SINAV">
-                <option value={activeQuiz.id}>
-                  🟢 [Aktif Sınav] {activeQuiz.subjectName} - {activeQuiz.topic} ({formatQuizDate(activeQuiz.createdAt)})
-                </option>
-              </optgroup>
+              {activeQuiz ? (
+                <optgroup label="🟢 ŞU ANDA YAYINDAKİ AKTİF SINAV">
+                  <option value={activeQuiz.id}>
+                    🟢 [Aktif Sınav] {activeQuiz.subjectName} - {activeQuiz.topic} ({formatQuizDate(activeQuiz.createdAt)})
+                  </option>
+                </optgroup>
+              ) : (
+                <optgroup label="🔴 YAYIN DURUMU">
+                  <option value="" disabled>
+                    🔴 Şu Anda Yayında Aktif Sınav Yok
+                  </option>
+                </optgroup>
+              )}
               {pastQuizzes.length > 0 && (
-                <optgroup label={`📁 GEÇMİŞ SINAVLAR ARŞİVİ (${pastQuizzes.length})`}>
+                <optgroup label={`📁 SINAVLAR ARŞİVİ (${pastQuizzes.length})`}>
                   {pastQuizzes.map((q) => {
                     const qResultsCount = results.filter((r) => r.quizId === q.id).length;
                     return (
@@ -923,7 +989,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </select>
 
             {/* If viewing an archived quiz, option to quickly make it active */}
-            {!isViewingActive && (
+            {!isViewingActive && currentViewQuiz && (
               <button
                 onClick={() => handleMakeQuizActive(currentViewQuiz)}
                 id="make-quiz-active-btn"
@@ -988,8 +1054,72 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       {/* TAB 1: CANLI VE ARŞİV SONUÇ PANOSU */}
       {activeTab === 'results' && (
         <div className="space-y-6">
-          {/* If viewing an archived exam, show dedicated informational banner */}
-          {!isViewingActive && (
+          {/* If no quiz exists at all */}
+          {!currentViewQuiz && (
+            <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center max-w-xl mx-auto my-8">
+              <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
+                <FolderArchive className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-black text-slate-800 mb-2">Şu Anda Yayında veya Arşivde Sınav Yok</h3>
+              <p className="text-sm text-slate-500 mb-6">
+                Öğrencilerin çözebileceği bir sınav bulunmuyor. MEB müfredatına uygun 20 soruluk yeni bir test başlatabilirsiniz.
+              </p>
+              <button
+                onClick={handleStartNewQuizFlow}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-6 py-3 rounded-xl text-sm transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+              >
+                <Plus className="w-4 h-4 inline mr-2" />
+                Yeni Sınav Başlat
+              </button>
+            </div>
+          )}
+
+          {/* If activeQuiz is null, show prominent unpublish/no active exam notification */}
+          {!activeQuiz && currentViewQuiz && (
+            <div className="bg-linear-to-r from-amber-50 to-orange-50 border border-amber-200 p-4 sm:p-5 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+              <div className="flex items-start sm:items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-200 text-amber-900 flex items-center justify-center shrink-0 font-black">
+                  <PauseCircle className="w-5 h-5 text-amber-800" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase tracking-wider text-amber-900">
+                      🔴 Şu Anda Yayında Aktif Sınav Yok
+                    </span>
+                  </div>
+                  <h4 className="text-sm sm:text-base font-black text-slate-800 mt-0.5">
+                    Öğrenci Sınav Ekranı Bekleme Modunda
+                  </h4>
+                  <p className="text-xs text-amber-800/90 font-medium">
+                    Öğrenciler şu an soruları çözemez; bekleme kartını görürler. Bu sınavı yayına almak için 'Aktif Sınav Yap' diyebilir veya yeni bir sınav oluşturabilirsiniz.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+                <button
+                  onClick={() => handleMakeQuizActive(currentViewQuiz)}
+                  id="results-make-active-btn"
+                  className="flex-1 sm:flex-initial bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-4 py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                  title="Bu sınavı öğrencilerin ekranında yayına al"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>Bu Sınavı Aktif Sınav Yap</span>
+                </button>
+                <button
+                  onClick={handleStartNewQuizFlow}
+                  id="results-start-new-btn"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Yeni Sınav Başlat</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* If viewing an archived exam while another exam is active */}
+          {activeQuiz && !isViewingActive && currentViewQuiz && (
             <div className="bg-amber-50/90 border border-amber-200 p-4 sm:p-5 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
               <div className="flex items-start sm:items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-amber-200 text-amber-900 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 font-black">
@@ -1393,7 +1523,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   {allQuizzes.length} <span className="text-xs font-semibold text-slate-400">Sınav</span>
                 </div>
                 <div className="text-[11px] text-slate-500 mt-1">
-                  1 Aktif Yayında • {pastQuizzes.length} Arşivde
+                  {activeQuiz ? '1 Aktif Yayında' : 'Yayında Sınav Yok'} • {pastQuizzes.length} Arşivde
                 </div>
               </div>
 
@@ -1504,7 +1634,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </div>
             ) : (
               filteredQuizzes.map((q) => {
-                const isCurrentActive = q.id === activeQuiz.id;
+                const isCurrentActive = !!(activeQuiz && q.id === activeQuiz.id);
                 const qResults = results.filter((r) => r.quizId === q.id);
                 const qTotalCompleted = qResults.length;
                 const qParticipation = students.length > 0 ? Math.round((qTotalCompleted / students.length) * 100) : 0;
@@ -1634,8 +1764,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           )}
                         </button>
 
-                        {/* Aktif Sınav Yap Butonu (Eğer şu anda aktif değilse) */}
-                        {!isCurrentActive && (
+                        {/* Aktif Sınav Yap veya Yayından Kaldır / Durdur Butonu */}
+                        {isCurrentActive ? (
+                          <button
+                            onClick={() => handleUnpublishQuiz(q)}
+                            id={`unpublish-${q.id}`}
+                            className="bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 font-extrabold px-3 py-2 rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+                            title="Bu sınavı yayından kaldır / durdur (öğrenciler bekleme ekranına geçer, sınav silinmez)"
+                          >
+                            <PauseCircle className="w-3.5 h-3.5 text-amber-700" />
+                            <span>Yayından Kaldır / Durdur</span>
+                          </button>
+                        ) : (
                           <button
                             onClick={() => handleMakeQuizActive(q)}
                             id={`make-active-${q.id}`}
