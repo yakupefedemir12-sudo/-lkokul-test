@@ -70,9 +70,6 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
 
   const activeQuiz = urlQuiz || quiz;
 
-  // Session storage key for locking the student to this quiz
-  const studentSessionKey = `meb_student_session_${activeQuiz.id}`;
-
   // Screen phase: 'select_student' | 'taking_exam' | 'submitted'
   const [phase, setPhase] = useState<'select_student' | 'taking_exam' | 'submitted'>('select_student');
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
@@ -84,6 +81,22 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
 
   // Review filter for the Karne: 'all' | 'wrong' | 'correct'
   const [reviewFilter, setReviewFilter] = useState<'all' | 'wrong' | 'correct'>('all');
+
+  // Clean up any legacy session keys on mount to ensure privacy
+  useEffect(() => {
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('meb_student_session_')) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // Completed student results mapped by studentId
   const studentResultMap = useMemo(() => {
@@ -98,19 +111,12 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
     return new Set(studentResultMap.keys());
   }, [studentResultMap]);
 
-  // Check on mount if student already finished this quiz in this browser session
+  // Guard: if currently selected student is in completed list, reset selection immediately
   useEffect(() => {
-    const savedStudentId = localStorage.getItem(studentSessionKey);
-    if (savedStudentId) {
-      const existingResult = studentResultMap.get(savedStudentId);
-      if (existingResult) {
-        setSelectedStudentId(savedStudentId);
-        setActiveResult(existingResult);
-        setPhase('submitted');
-        return;
-      }
+    if (selectedStudentId && completedStudentIds.has(selectedStudentId)) {
+      setSelectedStudentId('');
     }
-  }, [studentSessionKey, studentResultMap]);
+  }, [selectedStudentId, completedStudentIds]);
 
   // Selected student object
   const selectedStudent = students.find((s) => s.id === selectedStudentId);
@@ -147,12 +153,8 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
   const handleStartExam = () => {
     if (!selectedStudentId) return;
 
-    // Strict lock: if student already completed, redirect to karne instead of allowing retake
-    const existing = studentResultMap.get(selectedStudentId);
-    if (existing) {
-      setActiveResult(existing);
-      setPhase('submitted');
-      localStorage.setItem(studentSessionKey, selectedStudentId);
+    // Strict security check: if student already completed, block access completely
+    if (completedStudentIds.has(selectedStudentId)) {
       return;
     }
 
@@ -160,17 +162,6 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
     setCurrentQuestionIndex(0);
     setAnswers({});
     setSecondsElapsed(0);
-  };
-
-  // Directly view completed student's report card
-  const handleViewExistingKarne = () => {
-    if (!selectedStudentId) return;
-    const existing = studentResultMap.get(selectedStudentId);
-    if (existing) {
-      setActiveResult(existing);
-      setPhase('submitted');
-      localStorage.setItem(studentSessionKey, selectedStudentId);
-    }
   };
 
   // Select Option
@@ -239,15 +230,13 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
       answers: detailedAnswers,
     };
 
-    // Save to local storage
+    // Save to storage and server for teacher's records
     Storage.saveResult(newResult);
-
-    // Lock student to this quiz in localStorage so page refresh preserves their karne
-    localStorage.setItem(studentSessionKey, selectedStudent.id);
 
     // Call ready-made webhook / messaging notification function
     await notifyWebhookOrMessagingService(newResult);
 
+    // Display karne ONLY at this instant solution moment in memory
     setActiveResult(newResult);
     setPhase('submitted');
     setShowConfirmFinish(false);
@@ -256,7 +245,6 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
 
   // Switch student / logout from session
   const handleSwitchStudent = () => {
-    localStorage.removeItem(studentSessionKey);
     setSelectedStudentId('');
     setActiveResult(null);
     setAnswers({});
@@ -328,45 +316,52 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
               <select
                 id="student-dropdown"
                 value={selectedStudentId}
-                onChange={(e) => setSelectedStudentId(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val && completedStudentIds.has(val)) {
+                    return;
+                  }
+                  setSelectedStudentId(val);
+                }}
                 className="w-full bg-slate-50 border-2 border-slate-300 focus:border-amber-500 rounded-2xl py-3.5 px-4 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all cursor-pointer"
               >
                 <option value="">-- Adını ve Soyadını Seç --</option>
                 {students.map((std) => {
                   const isCompleted = completedStudentIds.has(std.id);
                   return (
-                    <option key={std.id} value={std.id}>
-                      {std.no} - {std.name} {isCompleted ? '🔒 (Tamamlandı - Karneyi Gör)' : '✅'}
+                    <option
+                      key={std.id}
+                      value={std.id}
+                      disabled={isCompleted}
+                      className={
+                        isCompleted
+                          ? 'text-slate-400 bg-slate-100 font-normal italic'
+                          : 'text-slate-800 font-bold'
+                      }
+                    >
+                      {std.no} - {std.name} {isCompleted ? '🔒 (Sınavı Tamamladı - Seçilemez)' : ''}
                     </option>
                   );
                 })}
               </select>
             </div>
 
-            {/* If selected student already took the test */}
+            {/* If selected student already completed the test */}
             {isSelectedCompleted && (
-              <div className="mt-4 p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl text-left">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-full bg-amber-200 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+              <div className="mt-4 p-4 bg-slate-100 border-2 border-slate-300 rounded-2xl text-left">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center shrink-0">
                     <Lock className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-black text-amber-900">
-                      Bu Testi Daha Önce Tamamladın!
+                    <h4 className="text-sm font-black text-slate-800">
+                      Bu Öğrenci Sınavı Tamamlamıştır
                     </h4>
-                    <p className="text-xs text-amber-800 mt-1 leading-relaxed">
-                      Sistem her öğrenciye tek bir sınav hakkı tanır. Cevapların öğretmenine kaydedildi. Aşağıdaki butona basarak sınav sonuç karneni ve tüm soruların çözümlerini dilediğin gibi inceleyebilirsin:
+                    <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+                      Sınav güvenliği ve gizlilik gereği tamamlanan testler öğrenci ekranında tekrar açılamaz ve karne detayları görüntülenemez. Sınav sonuçları yalnızca öğretmeninizin yönetim panelindedir.
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={handleViewExistingKarne}
-                  id="view-completed-karne-btn"
-                  className="mt-3 w-full bg-amber-600 hover:bg-amber-700 text-white font-extrabold py-3 px-4 rounded-xl text-xs flex items-center justify-center gap-2 shadow-md shadow-amber-600/20 transition-all cursor-pointer"
-                >
-                  <Award className="w-4 h-4" />
-                  <span>Sınav Sonuç Karnemi ve Yanıtlarımı Gör</span>
-                </button>
               </div>
             )}
           </div>
@@ -395,15 +390,17 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
   // 3. PHASE: SINAV SONUÇ KARNESİ VE CEVAP İNCELEME
   // ==========================================
   if (phase === 'submitted') {
-    const result = activeResult || studentResultMap.get(selectedStudentId);
+    const result = activeResult;
 
     if (!result) {
       return (
-        <div className="max-w-xl mx-auto px-4 py-12 text-center">
-          <p className="text-slate-600 font-bold mb-4">Sınav sonucu bulunamadı.</p>
+        <div className="max-w-xl mx-auto px-4 py-12 text-center bg-white rounded-3xl border border-slate-200 shadow-sm">
+          <p className="text-slate-700 font-bold mb-4">
+            Sınav sonuç karnesi ve cevap incelemesi yalnızca sınavın tamamlandığı anda görüntülenebilir.
+          </p>
           <button
             onClick={handleSwitchStudent}
-            className="bg-amber-600 text-white font-bold px-4 py-2 rounded-xl text-xs"
+            className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs cursor-pointer shadow-sm"
           >
             Öğrenci Girişine Dön
           </button>
@@ -435,14 +432,14 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-black uppercase tracking-wider bg-sky-200 px-2 py-0.5 rounded-md text-sky-800">
-                  Sınav Kilitli
+                  Sınav Tamamlandı
                 </span>
                 <span className="text-xs text-sky-700 font-bold">
                   Öğrenci: <strong>{result.studentName}</strong> (No: {result.studentNo})
                 </span>
               </div>
               <p className="text-xs text-sky-800 mt-0.5">
-                Bu test tamamlanmış ve yanıtların öğretmenine başarıyla iletilmiştir. Tekrar çözülemez, karneni istediğin zaman inceleyebilirsin.
+                Yanıtların başarıyla öğretmenine iletilmiştir. Sınav güvenliği gereği bu ekrandan ayrıldığında karne ve cevaplar öğrenci ekranında kapatılacaktır.
               </p>
             </div>
           </div>
@@ -452,7 +449,7 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
             className="shrink-0 bg-white hover:bg-sky-100 text-sky-800 border border-sky-300 font-bold px-3 py-1.5 rounded-xl text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Farklı Öğrenci Girişi</span>
+            <span>Öğrenci Girişine Dön</span>
           </button>
         </div>
 
