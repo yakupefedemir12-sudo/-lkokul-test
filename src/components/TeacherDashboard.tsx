@@ -27,6 +27,8 @@ import {
   FileText,
   UploadCloud,
   FileUp,
+  Image as ImageIcon,
+  Camera,
   FolderArchive,
   Calendar,
   Play,
@@ -132,9 +134,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // Quiz Creator sub-tab: 'curriculum' | 'pdf'
   const [createMode, setCreateMode] = useState<'curriculum' | 'pdf'>('curriculum');
 
-  // PDF Upload & AI Quiz state
+  // Upload & AI Quiz state (PDF, Photo, Screenshot)
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
+  const [fileMimeType, setFileMimeType] = useState<string>('application/pdf');
+  const [previewModalOpen, setPreviewModalOpen] = useState<boolean>(false);
   const [pdfMode, setPdfMode] = useState<'reading_comprehension' | 'worksheet_test'>('reading_comprehension');
   const [pdfSubjectName, setPdfSubjectName] = useState<string>('Türkçe');
   const [pdfTopicName, setPdfTopicName] = useState<string>('');
@@ -518,21 +522,34 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     }
   };
 
-  // PDF File handling
+  // File handling (PDF, Photo, Screenshot)
   const handlePdfFile = (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
-      setPdfError('Lütfen sadece .pdf uzantılı bir dosya seçiniz.');
+    const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+    const isImg = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name);
+
+    if (!isPdf && !isImg) {
+      setPdfError('Lütfen geçerli bir PDF veya görsel dosyası (PNG, JPG, JPEG, WebP) seçiniz.');
       return;
     }
     if (file.size > 20 * 1024 * 1024) {
-      setPdfError('PDF dosyası boyutu en fazla 20 MB olabilir.');
+      setPdfError('Dosya boyutu en fazla 20 MB olabilir.');
       return;
     }
     setPdfError('');
     setPdfFile(file);
 
+    // Detect actual MIME type
+    let resolvedMime = file.type;
+    if (!resolvedMime || resolvedMime === '') {
+      if (isPdf) resolvedMime = 'application/pdf';
+      else if (/\.png$/i.test(file.name)) resolvedMime = 'image/png';
+      else if (/\.webp$/i.test(file.name)) resolvedMime = 'image/webp';
+      else resolvedMime = 'image/jpeg';
+    }
+    setFileMimeType(resolvedMime);
+
     // Auto-populate topic name from file name if empty
-    const cleanName = file.name.replace(/\.pdf$/i, '').replace(/[_-]/g, ' ').trim();
+    const cleanName = file.name.replace(/\.(pdf|png|jpe?g|webp|gif)$/i, '').replace(/[_-]/g, ' ').trim();
     if (!pdfTopicName) {
       setPdfTopicName(cleanName);
     }
@@ -549,9 +566,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   const handleGenerateQuizFromPdf = async () => {
     if (!pdfBase64) {
-      setPdfError('Lütfen önce bir PDF dosyası yükleyiniz.');
+      setPdfError('Lütfen önce bir fotoğraf, ekran görüntüsü veya PDF dosyası yükleyiniz.');
       return;
     }
+
+    const isImg = fileMimeType.startsWith('image/') || (pdfFile && (/\.(png|jpe?g|webp)$/i.test(pdfFile.name) || pdfFile.type.startsWith('image/')));
 
     setIsGeneratingPdf(true);
     setPdfError('');
@@ -563,11 +582,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          fileBase64: pdfBase64,
           pdfBase64,
-          pdfName: pdfFile?.name || 'belge.pdf',
+          fileName: pdfFile?.name || (isImg ? 'gorsel.jpg' : 'belge.pdf'),
+          pdfName: pdfFile?.name || (isImg ? 'gorsel.jpg' : 'belge.pdf'),
+          mimeType: fileMimeType,
           mode: pdfMode,
           subjectName: pdfSubjectName || 'Türkçe',
-          topicName: pdfTopicName || pdfFile?.name?.replace(/\.pdf$/i, '') || 'PDF Çalışması',
+          topicName: pdfTopicName || pdfFile?.name?.replace(/\.(pdf|png|jpe?g|webp)$/i, '') || (isImg ? 'Görsel Test Çalışması' : 'PDF Çalışması'),
           customPrompt: pdfTeacherNote,
         }),
       });
@@ -576,10 +598,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
       if (data.success && Array.isArray(data.questions) && data.questions.length > 0) {
         setPreviewQuestions(data.questions);
-        setGenerationSource(data.source || 'Gemini Multimodal PDF Analizi');
+        setGenerationSource(data.source || (isImg ? 'Gemini Multimodal Görsel Analizi' : 'Gemini Multimodal PDF Analizi'));
 
-        const titleSubject = pdfSubjectName || 'PDF Destekli';
-        const titleTopic = pdfTopicName || pdfFile?.name?.replace(/\.pdf$/i, '') || 'PDF Çalışması';
+        const titleSubject = pdfSubjectName || (isImg ? 'Görsel Destekli' : 'PDF Destekli');
+        const titleTopic = pdfTopicName || pdfFile?.name?.replace(/\.(pdf|png|jpe?g|webp)$/i, '') || (isImg ? 'Görsel Testi' : 'PDF Testi');
 
         let subId: SubjectId = 'turkce';
         const sLower = titleSubject.toLowerCase();
@@ -588,7 +610,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         else if (sLower.includes('sosyal')) subId = 'sosyal_bilgiler';
 
         const newQuiz: Quiz = {
-          id: `quiz_pdf_${Date.now()}`,
+          id: `quiz_${isImg ? 'img' : 'pdf'}_${Date.now()}`,
           title: `${titleSubject} 4. Sınıf - ${titleTopic} Değerlendirme Testi`,
           subjectId: subId,
           subjectName: titleSubject,
@@ -607,8 +629,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         throw new Error(data.error || 'Sorular oluşturulamadı.');
       }
     } catch (err: any) {
-      console.error('PDF quiz generation error:', err);
-      setPdfError(err?.message || 'PDF analiz edilirken hata oluştu. Lütfen dosyanızı kontrol ediniz.');
+      console.error('File quiz generation error:', err);
+      setPdfError(err?.message || 'Dosya analiz edilirken hata oluştu. Lütfen dosyanızı kontrol ediniz.');
     } finally {
       setIsGeneratingPdf(false);
     }
@@ -1896,8 +1918,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                 }`}
               >
-                <FileText className="w-4 h-4" />
-                <span>PDF Dosyası Yükle (Yeni)</span>
+                <ImageIcon className="w-4 h-4" />
+                <span>Fotoğraf / Ekran Görüntüsü veya PDF Yükle</span>
                 <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
                   createMode === 'pdf' ? 'bg-indigo-700 text-white' : 'bg-indigo-100 text-indigo-700'
                 }`}>
@@ -2031,281 +2053,372 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </div>
             )}
 
-            {/* SEKME 2: PDF DOSYASI YÜKLE (YENİ) */}
-            {createMode === 'pdf' && (
-              <div className="space-y-6">
-                <div className="flex items-start justify-between flex-wrap gap-4">
-                  <div>
-                    <div className="inline-flex items-center gap-1.5 text-xs font-black text-indigo-700 bg-indigo-100 px-3 py-1 rounded-full mb-2 uppercase tracking-wide">
-                      <FileUp className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>Gemini Multimodal Vision & Document Intelligence</span>
+            {/* SEKME 2: FOTOĞRAF / EKRAN GÖRÜNTÜSÜ VEYA PDF YÜKLE */}
+            {createMode === 'pdf' && (() => {
+              const isCurrentFileImage = Boolean(
+                fileMimeType.startsWith('image/') ||
+                (pdfFile && (/\.(png|jpe?g|webp|gif)$/i.test(pdfFile.name) || pdfFile.type.startsWith('image/')))
+              );
+
+              return (
+                <div className="space-y-6">
+                  <div className="flex items-start justify-between flex-wrap gap-4">
+                    <div>
+                      <div className="inline-flex items-center gap-1.5 text-xs font-black text-indigo-700 bg-indigo-100 px-3 py-1 rounded-full mb-2 uppercase tracking-wide">
+                        <Camera className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Gemini Multimodal Vision & Belge Zekâsı</span>
+                      </div>
+                      <h3 className="text-xl sm:text-2xl font-black text-slate-800 font-['Plus_Jakarta_Sans',sans-serif]">
+                        Fotoğraf, Ekran Görüntüsü veya PDF'ten 20 Soru Oluştur ve Başlat
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1 max-w-2xl">
+                        Kitap sayfası fotoğrafı, ekran görüntüsü, okuma metni veya hazır yaprak test PDF'inizi yükleyin. Gemini yapay zekâsı görseli veya belgeyi multimodal olarak okur ve MEB 4. sınıf düzeyinde 20 interaktif soruya dönüştürür.
+                      </p>
                     </div>
-                    <h3 className="text-xl sm:text-2xl font-black text-slate-800 font-['Plus_Jakarta_Sans',sans-serif]">
-                      PDF Dosyasından 20 Soru Oluştur ve Başlat
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-                      Okuma metni, hikaye veya hazır yaprak test PDF'inizi yükleyin. Gemini yapay zekâsı belgeyi multimodal olarak analiz eder ve MEB 4. sınıf düzeyinde 20 interaktif soruya dönüştürür.
-                    </p>
+
+                    {generationSource && (
+                      <div className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                        <span>Kaynak: {generationSource}</span>
+                      </div>
+                    )}
                   </div>
 
-                  {generationSource && (
-                    <div className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-indigo-600" />
-                      <span>Kaynak: {generationSource}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* SÜRÜKLE - BIRAK VE TIKLA SEÇ ALANI (YALNIZCA .PDF) */}
-                <div>
-                  <input
-                    type="file"
-                    id="pdf-upload-input"
-                    accept=".pdf,application/pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        handlePdfFile(e.target.files[0]);
-                      }
-                    }}
-                  />
-
-                  {!pdfFile ? (
-                    <div
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setPdfDragActive(true);
-                      }}
-                      onDragLeave={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setPdfDragActive(false);
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setPdfDragActive(false);
-                        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                          handlePdfFile(e.dataTransfer.files[0]);
+                  {/* SÜRÜKLE - BIRAK VE TIKLA SEÇ ALANI (FOTOĞRAF / EKRAN GÖRÜNTÜSÜ / PDF) */}
+                  <div>
+                    <input
+                      type="file"
+                      id="pdf-upload-input"
+                      accept=".pdf,image/png,image/jpeg,image/jpg,image/webp,image/*,application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          handlePdfFile(e.target.files[0]);
                         }
                       }}
-                      onClick={() => document.getElementById('pdf-upload-input')?.click()}
-                      className={`border-2 border-dashed rounded-3xl p-8 sm:p-10 text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
-                        pdfDragActive
-                          ? 'border-indigo-500 bg-indigo-50/70 scale-[1.01]'
-                          : 'border-slate-300 hover:border-indigo-400 bg-slate-50/50 hover:bg-indigo-50/30'
-                      }`}
-                    >
-                      <div className="w-16 h-16 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center mb-4 shadow-sm">
-                        <UploadCloud className="w-8 h-8" />
-                      </div>
-                      <h4 className="font-extrabold text-slate-800 text-base mb-1">
-                        PDF dosyasını buraya sürükleyip bırakın veya seçmek için tıklayın
-                      </h4>
-                      <p className="text-xs text-slate-500 max-w-md">
-                        Yalnızca <strong className="text-slate-700">.pdf</strong> formatındaki dosyalar kabul edilir (Hikaye, ders notu veya yaprak test, maks. 20 MB).
-                      </p>
-                      <div className="mt-4 inline-flex items-center gap-2 bg-white px-4 py-2 rounded-xl text-xs font-bold text-indigo-700 border border-indigo-200 shadow-xs">
-                        <FileText className="w-4 h-4 text-indigo-500" />
-                        <span>PDF Dosyası Seç</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="bg-indigo-50/80 border-2 border-indigo-200 rounded-3xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                      <div className="flex items-center gap-3.5">
-                        <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-indigo-500/25">
-                          <FileText className="w-6 h-6" />
+                    />
+
+                    {!pdfFile ? (
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPdfDragActive(true);
+                        }}
+                        onDragLeave={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPdfDragActive(false);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPdfDragActive(false);
+                          if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                            handlePdfFile(e.dataTransfer.files[0]);
+                          }
+                        }}
+                        onClick={() => document.getElementById('pdf-upload-input')?.click()}
+                        className={`border-2 border-dashed rounded-3xl p-8 sm:p-10 text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+                          pdfDragActive
+                            ? 'border-indigo-500 bg-indigo-50/70 scale-[1.01]'
+                            : 'border-slate-300 hover:border-indigo-400 bg-slate-50/50 hover:bg-indigo-50/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-center gap-2 mb-4">
+                          <div className="w-14 h-14 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shadow-sm">
+                            <ImageIcon className="w-7 h-7" />
+                          </div>
+                          <div className="w-14 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shadow-indigo-600/30">
+                            <UploadCloud className="w-7 h-7" />
+                          </div>
+                          <div className="w-14 h-14 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shadow-sm">
+                            <FileText className="w-7 h-7" />
+                          </div>
                         </div>
-                        <div>
+
+                        <h4 className="font-extrabold text-slate-800 text-base mb-1">
+                          Fotoğraf, ekran görüntüsü veya PDF dosyasını buraya sürükleyip bırakın veya seçmek için tıklayın
+                        </h4>
+                        <p className="text-xs text-slate-500 max-w-lg mb-2">
+                          <strong className="text-slate-700">PNG, JPG, JPEG, WebP veya PDF</strong> formatındaki soru kitapçığı fotoğrafı, ekran görüntüsü veya ders PDF'i (Maksimum 20 MB).
+                        </p>
+                        <p className="text-[11px] text-indigo-600 font-bold bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1 inline-flex items-center gap-1.5 mb-4">
+                          <Camera className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Mobil cihazınızın kamerasıyla soru veya sayfa fotoğrafı çekip anında yükleyebilirsiniz.</span>
+                        </p>
+
+                        <div className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-xs font-black shadow-md shadow-indigo-600/25 transition-all">
+                          <FileUp className="w-4 h-4" />
+                          <span>Fotoğraf / Ekran Görüntüsü veya PDF Seç</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-indigo-50/80 border-2 border-indigo-200 rounded-3xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          {/* EĞER RESİM İSE THUMBNAIL (KÜÇÜK ÖNİZLEME) GÖSTER */}
+                          {isCurrentFileImage && pdfBase64 ? (
+                            <div
+                              onClick={() => setPreviewModalOpen(true)}
+                              className="relative group cursor-pointer shrink-0"
+                              title="Büyük önizleme için tıklayın"
+                            >
+                              <img
+                                src={pdfBase64}
+                                alt={pdfFile.name}
+                                className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-2xl border-2 border-indigo-300 shadow-sm transition-transform group-hover:scale-105"
+                              />
+                              <div className="absolute inset-0 bg-indigo-950/50 opacity-0 group-hover:opacity-100 rounded-2xl flex items-center justify-center text-white text-[11px] font-black transition-opacity gap-1">
+                                <Eye className="w-4 h-4" />
+                                <span className="hidden sm:inline">Büyüt</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-indigo-500/25">
+                              <FileText className="w-7 h-7" />
+                            </div>
+                          )}
+
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-extrabold text-sm text-slate-800 break-all">{pdfFile.name}</span>
+                              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                {isCurrentFileImage ? 'Görsel Hazır' : 'PDF Hazır'}
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-slate-500 font-medium mt-1">
+                              Boyut: {(pdfFile.size / (1024 * 1024)).toFixed(2)} MB • {isCurrentFileImage ? `📸 Görsel (${fileMimeType})` : '📄 PDF Belgesi'}
+                            </p>
+
+                            {isCurrentFileImage && pdfBase64 && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewModalOpen(true)}
+                                className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 underline cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Görseli Büyüt ve İncele</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setPdfFile(null);
+                            setPdfBase64(null);
+                            setPdfError('');
+                          }}
+                          className="text-xs font-bold text-slate-600 hover:text-rose-600 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 px-3.5 py-2 rounded-xl transition-colors cursor-pointer self-end sm:self-center"
+                        >
+                          Farklı Dosya Seç
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* BÜYÜK RESİM ÖNİZLEME MODALI */}
+                  {previewModalOpen && isCurrentFileImage && pdfBase64 && (
+                    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+                      <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
                           <div className="flex items-center gap-2">
-                            <span className="font-extrabold text-sm text-slate-800 break-all">{pdfFile.name}</span>
-                            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              Yüklendi
+                            <ImageIcon className="w-5 h-5 text-indigo-600" />
+                            <span className="font-extrabold text-sm text-slate-800 truncate max-w-xs sm:max-w-md">
+                              {pdfFile?.name}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-500 font-medium mt-0.5">
-                            Boyut: {(pdfFile.size / (1024 * 1024)).toFixed(2)} MB • Dosya tipi: PDF
-                          </p>
+                          <button
+                            onClick={() => setPreviewModalOpen(false)}
+                            className="p-1.5 rounded-xl hover:bg-slate-200 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
+                        <div className="p-4 flex-1 overflow-auto bg-slate-900 flex items-center justify-center">
+                          <img
+                            src={pdfBase64}
+                            alt={pdfFile?.name || 'Önizleme'}
+                            className="max-h-[70vh] w-auto max-w-full object-contain rounded-lg shadow-lg"
+                          />
+                        </div>
+                        <div className="p-3.5 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 bg-slate-50">
+                          <span>Yapay zekâ bu görseldeki tüm soru metinlerini ve görselleri tarayacaktır.</span>
+                          <button
+                            onClick={() => setPreviewModalOpen(false)}
+                            className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl cursor-pointer"
+                          >
+                            Kapat
+                          </button>
                         </div>
                       </div>
-
-                      <button
-                        onClick={() => {
-                          setPdfFile(null);
-                          setPdfBase64(null);
-                          setPdfError('');
-                        }}
-                        className="text-xs font-bold text-slate-600 hover:text-rose-600 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer self-end sm:self-center"
-                      >
-                        Farklı PDF Seç
-                      </button>
                     </div>
                   )}
-                </div>
 
-                {/* PDF İÇERİK TÜRÜ SEÇİMİ: SEÇENEK A ve SEÇENEK B */}
-                <div>
-                  <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-3">
-                    PDF İçerik Türü ve Soru Üretim Amacını Seçin:
-                  </label>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Seçenek A: Okuma Metni / Konu Anlatımı */}
-                    <div
-                      onClick={() => setPdfMode('reading_comprehension')}
-                      className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
-                        pdfMode === 'reading_comprehension'
-                          ? 'border-indigo-600 bg-indigo-50/40 shadow-sm'
-                          : 'border-slate-200 hover:border-slate-300 bg-white'
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <input
-                          type="radio"
-                          name="pdfMode"
-                          id="mode-reading"
-                          checked={pdfMode === 'reading_comprehension'}
-                          onChange={() => setPdfMode('reading_comprehension')}
-                          className="mt-1 w-4 h-4 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                        />
-                        <div>
-                          <label htmlFor="mode-reading" className="font-black text-slate-800 text-sm block cursor-pointer">
-                            Seçenek A: Okuma Metni / Konu Anlatımıdır
-                          </label>
-                          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                            Yüklediğiniz hikaye, masal veya ders anlatım metnine uygun <strong>tam 20 adet anlama, kavrama ve çıkarım sorusu</strong> üretir.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-indigo-700">
-                        <span>📖 Metne Dayalı 20 Özgün Soru</span>
-                        <span className="bg-indigo-100 px-2 py-0.5 rounded-md">Önerilen</span>
-                      </div>
-                    </div>
-
-                    {/* Seçenek B: Hazır Bir Yaprak Testtir */}
-                    <div
-                      onClick={() => setPdfMode('worksheet_test')}
-                      className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
-                        pdfMode === 'worksheet_test'
-                          ? 'border-indigo-600 bg-indigo-50/40 shadow-sm'
-                          : 'border-slate-200 hover:border-slate-300 bg-white'
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <input
-                          type="radio"
-                          name="pdfMode"
-                          id="mode-worksheet"
-                          checked={pdfMode === 'worksheet_test'}
-                          onChange={() => setPdfMode('worksheet_test')}
-                          className="mt-1 w-4 h-4 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                        />
-                        <div>
-                          <label htmlFor="mode-worksheet" className="font-black text-slate-800 text-sm block cursor-pointer">
-                            Seçenek B: Hazır Bir Yaprak Testtir
-                          </label>
-                          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                            PDF belgesindeki mevcut soruları algılar, 4 seçenekli (A, B, C, D) <strong>dijital interaktif teste dönüştürür</strong> ve 20 soruya tamamlar.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-indigo-700">
-                        <span>📝 Soru Algılama & Dijitalleştirme</span>
-                        <span className="bg-indigo-100 px-2 py-0.5 rounded-md">OCR & Vision</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sınav Başlığı ve Ders Bilgisi */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* İÇERİK TÜRÜ SEÇİMİ: SEÇENEK A ve SEÇENEK B */}
                   <div>
-                    <label htmlFor="pdf-subject-input" className="block text-xs font-bold text-slate-700 mb-1.5">
-                      Ders Adı:
+                    <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-3">
+                      İçerik Türü ve Soru Üretim Amacını Seçin:
                     </label>
-                    <select
-                      id="pdf-subject-input"
-                      value={pdfSubjectName}
-                      onChange={(e) => setPdfSubjectName(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="Türkçe">Türkçe</option>
-                      <option value="Matematik">Matematik</option>
-                      <option value="Fen Bilimleri">Fen Bilimleri</option>
-                      <option value="Sosyal Bilgiler">Sosyal Bilgiler</option>
-                      <option value="Genel Değerlendirme">Genel Değerlendirme</option>
-                    </select>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Seçenek A: Okuma Metni / Konu Anlatımı */}
+                      <div
+                        onClick={() => setPdfMode('reading_comprehension')}
+                        className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                          pdfMode === 'reading_comprehension'
+                            ? 'border-indigo-600 bg-indigo-50/40 shadow-sm'
+                            : 'border-slate-200 hover:border-slate-300 bg-white'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="radio"
+                            name="pdfMode"
+                            id="mode-reading"
+                            checked={pdfMode === 'reading_comprehension'}
+                            onChange={() => setPdfMode('reading_comprehension')}
+                            className="mt-1 w-4 h-4 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                          <div>
+                            <label htmlFor="mode-reading" className="font-black text-slate-800 text-sm block cursor-pointer">
+                              Seçenek A: Okuma Metni / Kitap Sayfası / Konu Anlatımı
+                            </label>
+                            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                              Yüklediğiniz görsel veya PDF'teki hikaye, masal veya ders anlatım metnine uygun <strong>tam 20 adet anlama, kavrama ve çıkarım sorusu</strong> üretir.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-indigo-700">
+                          <span>📖 Metne Dayalı 20 Özgün Soru</span>
+                          <span className="bg-indigo-100 px-2 py-0.5 rounded-md">Önerilen</span>
+                        </div>
+                      </div>
+
+                      {/* Seçenek B: Hazır Bir Yaprak Test / Ekran Görüntüsü */}
+                      <div
+                        onClick={() => setPdfMode('worksheet_test')}
+                        className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                          pdfMode === 'worksheet_test'
+                            ? 'border-indigo-600 bg-indigo-50/40 shadow-sm'
+                            : 'border-slate-200 hover:border-slate-300 bg-white'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="radio"
+                            name="pdfMode"
+                            id="mode-worksheet"
+                            checked={pdfMode === 'worksheet_test'}
+                            onChange={() => setPdfMode('worksheet_test')}
+                            className="mt-1 w-4 h-4 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                          <div>
+                            <label htmlFor="mode-worksheet" className="font-black text-slate-800 text-sm block cursor-pointer">
+                              Seçenek B: Hazır Bir Yaprak Test / Ekran Görüntüsü
+                            </label>
+                            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                              Görseldeki veya PDF belgesindeki mevcut soruları algılar, 4 seçenekli (A, B, C, D) <strong>dijital interaktif teste dönüştürür</strong> ve 20 soruya tamamlar.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-indigo-700">
+                          <span>📝 Soru Algılama & Dijitalleştirme</span>
+                          <span className="bg-indigo-100 px-2 py-0.5 rounded-md">OCR & Multimodal Vision</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
+                  {/* Sınav Başlığı ve Ders Bilgisi */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="pdf-subject-input" className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Ders Adı:
+                      </label>
+                      <select
+                        id="pdf-subject-input"
+                        value={pdfSubjectName}
+                        onChange={(e) => setPdfSubjectName(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="Türkçe">Türkçe</option>
+                        <option value="Matematik">Matematik</option>
+                        <option value="Fen Bilimleri">Fen Bilimleri</option>
+                        <option value="Sosyal Bilgiler">Sosyal Bilgiler</option>
+                        <option value="Genel Değerlendirme">Genel Değerlendirme</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label htmlFor="pdf-topic-input" className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Sınav / Konu Başlığı:
+                      </label>
+                      <input
+                        id="pdf-topic-input"
+                        type="text"
+                        value={pdfTopicName}
+                        onChange={(e) => setPdfTopicName(e.target.value)}
+                        placeholder="Örn: Küçük Prens Okuma Testi / Kesirler Yaprak Test"
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Öğretmen Özel Yönergesi */}
                   <div>
-                    <label htmlFor="pdf-topic-input" className="block text-xs font-bold text-slate-700 mb-1.5">
-                      Sınav / Konu Başlığı:
+                    <label htmlFor="pdf-teacher-note" className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Öğretmen Özel Yönergesi (İsteğe Bağlı):
                     </label>
                     <input
-                      id="pdf-topic-input"
+                      id="pdf-teacher-note"
                       type="text"
-                      value={pdfTopicName}
-                      onChange={(e) => setPdfTopicName(e.target.value)}
-                      placeholder="Örn: Küçük Prens Okuma Testi / Kesirler Yaprak Test"
-                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      value={pdfTeacherNote}
+                      onChange={(e) => setPdfTeacherNote(e.target.value)}
+                      placeholder="Örn: İlk 10 soru doğrudan metin anlama, son 10 soru ise kelime bilgisi ve ana fikir olsun..."
+                      className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
-                </div>
 
-                {/* Öğretmen Özel Yönergesi */}
-                <div>
-                  <label htmlFor="pdf-teacher-note" className="block text-xs font-bold text-slate-700 mb-1.5">
-                    Öğretmen Özel Yönergesi (İsteğe Bağlı):
-                  </label>
-                  <input
-                    id="pdf-teacher-note"
-                    type="text"
-                    value={pdfTeacherNote}
-                    onChange={(e) => setPdfTeacherNote(e.target.value)}
-                    placeholder="Örn: İlk 10 soru doğrudan metin anlama, son 10 soru ise kelime bilgisi ve ana fikir olsun..."
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
+                  {/* Hata Uyarısı */}
+                  {pdfError && (
+                    <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-3 text-xs text-rose-800 font-bold">
+                      <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                      <span>{pdfError}</span>
+                    </div>
+                  )}
 
-                {/* Hata Uyarısı */}
-                {pdfError && (
-                  <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-3 text-xs text-rose-800 font-bold">
-                    <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-                    <span>{pdfError}</span>
+                  {/* 20 Soru Oluştur ve Başlat Butonu */}
+                  <div>
+                    <button
+                      onClick={handleGenerateQuizFromPdf}
+                      disabled={isGeneratingPdf || !pdfFile}
+                      id="generate-quiz-from-pdf-btn"
+                      className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-black px-8 py-4 rounded-2xl text-sm transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 cursor-pointer w-full sm:w-auto"
+                    >
+                      {isGeneratingPdf ? (
+                        <>
+                          <RefreshCw className="w-5 h-5 animate-spin" />
+                          <span>Görsel / PDF Analiz Ediliyor ve 20 Soru Hazırlanıyor... (~10-15 sn)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-5 h-5" />
+                          <span>Fotoğraf veya PDF'ten 20 Soru Oluştur ve Başlat 🚀</span>
+                        </>
+                      )}
+                    </button>
+                    <p className="text-[11px] text-slate-400 mt-2 font-medium">
+                      Sınav oluşturulduğu anda öğrenciler sınav ekranında bu 20 soruyu süre sayacı ve karne sistemiyle çözebilir.
+                    </p>
                   </div>
-                )}
-
-                {/* PDF'ten 20 Soru Oluştur ve Başlat Butonu */}
-                <div>
-                  <button
-                    onClick={handleGenerateQuizFromPdf}
-                    disabled={isGeneratingPdf || !pdfFile}
-                    id="generate-quiz-from-pdf-btn"
-                    className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-black px-8 py-4 rounded-2xl text-sm transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 cursor-pointer w-full sm:w-auto"
-                  >
-                    {isGeneratingPdf ? (
-                      <>
-                        <RefreshCw className="w-5 h-5 animate-spin" />
-                        <span>PDF Analiz Ediliyor ve 20 Soru Hazırlanıyor... (~10-15 sn)</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-5 h-5" />
-                        <span>PDF'ten 20 Soru Oluştur ve Başlat 🚀</span>
-                      </>
-                    )}
-                  </button>
-                  <p className="text-[11px] text-slate-400 mt-2 font-medium">
-                    Sınav oluşturulduğu anda öğrenciler sınav ekranında bu 20 soruyu süre sayacı ve karne sistemiyle çözebilir.
-                  </p>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
           {/* YEŞİL RENKLİ BÜYÜK "VELİ GRUBU İÇİN MESAJI KOPYALA" ALANI */}

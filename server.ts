@@ -340,13 +340,15 @@ KESİN VE ZORUNLU KURALLAR:
   }
 });
 
-// PDF-based AI Quiz Generation Endpoint
+// PDF & Image-based AI Quiz Generation Endpoint
 app.post("/api/generate-quiz-pdf", async (req, res) => {
-  const { pdfBase64, pdfName, mode, customPrompt, subjectName, topicName } = req.body;
+  const rawBase64 = req.body.fileBase64 || req.body.pdfBase64;
+  const rawName = req.body.fileName || req.body.pdfName || "dosya";
+  const { mode, customPrompt, subjectName, topicName } = req.body;
 
-  if (!pdfBase64) {
+  if (!rawBase64) {
     return res.status(400).json({
-      error: "Lütfen bir PDF dosyası yükleyiniz.",
+      error: "Lütfen bir PDF veya görsel dosyası (fotoğraf / ekran görüntüsü) yükleyiniz.",
     });
   }
 
@@ -358,40 +360,59 @@ app.post("/api/generate-quiz-pdf", async (req, res) => {
     });
   }
 
-  // Strip prefix like "data:application/pdf;base64," if present
-  const cleanBase64 = pdfBase64.replace(/^data:[^;]+;base64,/, "");
+  // Detect MIME type accurately
+  let resolvedMimeType = req.body.mimeType;
+  if (!resolvedMimeType) {
+    const dataUrlMatch = rawBase64.match(/^data:([^;]+);base64,/);
+    if (dataUrlMatch && dataUrlMatch[1]) {
+      resolvedMimeType = dataUrlMatch[1];
+    } else {
+      const ext = rawName.toLowerCase().split(".").pop();
+      if (ext === "png") resolvedMimeType = "image/png";
+      else if (ext === "jpg" || ext === "jpeg") resolvedMimeType = "image/jpeg";
+      else if (ext === "webp") resolvedMimeType = "image/webp";
+      else if (ext === "gif") resolvedMimeType = "image/gif";
+      else resolvedMimeType = "application/pdf";
+    }
+  }
+
+  if (resolvedMimeType === "image/jpg") {
+    resolvedMimeType = "image/jpeg";
+  }
+
+  const isImage = resolvedMimeType.startsWith("image/");
+  const docTypeLabel = isImage ? "fotoğraf / ekran görüntüsü" : "PDF dokümanı";
+
+  // Strip prefix like "data:image/jpeg;base64," or "data:application/pdf;base64," if present
+  const cleanBase64 = rawBase64.replace(/^data:[^;]+;base64,/, "");
 
   try {
     const isReading = mode === "reading_comprehension";
     const systemInstruction = `Sen Türkiye Cumhuriyeti MEB (Milli Eğitim Bakanlığı) 4. Sınıf ilkokul müfredatında uzmanlaşmış, ölçme ve değerlendirme alanında kıdemli bir eğitim teknolojisi uzmanısın.
-Sana iletilen PDF dokümanını baştan sona analiz ederek 4. sınıf (9-10 yaş) çocuklarının dil gelişimine, pedagojik düzeyine ve MEB kazanımlarına %100 uygun 20 adet çoktan seçmeli (A, B, C, D) soru hazırlarsın.
+Sana iletilen görseldeki (fotoğraf, ekran görüntüsü) veya PDF belgesindeki içeriği baştan sona analiz ederek 4. sınıf (9-10 yaş) çocuklarının dil gelişimine, pedagojik düzeyine ve MEB kazanımlarına %100 uygun 20 adet çoktan seçmeli (A, B, C, D) soru hazırlarsın.
 Her sorunun 4 seçeneği (A, B, C, D), tek bir kesin doğru cevabı ve 4. sınıf çocuğunun anlayacağı 1-2 cümlelik pedagojik çözüm açıklaması (explanation) bulunmalıdır.`;
 
-    const userPrompt = isReading
-      ? `Bu ekteki PDF bir OKUMA METNİ / KONU ANLATIMI dokümanıdır (Dosya: ${pdfName || 'belge.pdf'}).
-Ders: ${subjectName || 'Türkçe / Genel'}
-Konu: ${topicName || pdfName || 'Okuma Anlama ve Kavrama'}
+    const userPrompt = `Görseldeki veya PDF'teki test sorularını / okuma metnini oku, 4. sınıf düzeyinde 4 seçenekli (A, B, C, D) 20 soruya dönüştür.
+
+Dosya Bilgisi: ${docTypeLabel} (${rawName})
+Ders: ${subjectName || "Genel / Türkçe"}
+Konu: ${topicName || rawName || "Ders Çalışması"}
+Çalışma Türü: ${isReading ? "Okuma Metni / Konu Anlatımı / Hikaye" : "Hazır Test / Soru Bankası / Ekran Görüntüsü"}
 ${customPrompt ? `Öğretmen Özel Yönergesi: ${customPrompt}` : ""}
 
-GÖREV:
-1. Ekli PDF belgesindeki metni, hikayeyi veya konu anlatımını baştan sona dikkatle oku ve analiz et.
-2. Bu metne dayalı olarak 4. sınıf düzeyinde TAM 20 adet ÇOKTAN SEÇMELİ (A, B, C, D) anlama, kavrama, çıkarım ve ana fikir sorusu hazırla.
-3. Soruların 20'si de birbirinden tamamen farklı, bağımsız ve özgün olmalıdır.
-4. Metindeki ana karakterler, olay örgüsü, sebep-sonuç bağları, ana fikir ve kelime bilgisine odaklan.
-5. Soruların başlığında veya metninde "(Kazanım Alıştırması #...)" veya "Tekrar" gibi yapay etiketler KESİNLİKLE yer almayacaktır. Doğrudan özgün soru metnini yaz.
-6. correctAnswer kesinlikle "A", "B", "C" veya "D" olmalıdır.
-7. explanation alanında 4. sınıf öğrencisinin anlayacağı 1-2 cümlelik çözüm açıklaması olsun.`
-      : `Bu ekteki PDF hazır bir YAPRAK TEST / SORU BANKASI dokümanıdır (Dosya: ${pdfName || 'test.pdf'}).
-Ders: ${subjectName || 'Genel Değerlendirme'}
-Konu: ${topicName || pdfName || 'Yaprak Test'}
-${customPrompt ? `Öğretmen Özel Yönergesi: ${customPrompt}` : ""}
-
-GÖREV:
-1. Ekli PDF belgesindeki soruları dikkatle algıla, dijitalleştir ve interaktif teste dönüştür.
-2. Eğer PDF'te sorular varsa bunları sırayla A, B, C, D seçenekleriyle dijitalleştir.
-3. Eğer PDF'te 20'den az soru varsa, PDF'teki soruları ve konu bağlamını koruyarak benzer tarzda ve zorlukta yeni sorular ekle ve toplam soru sayısını TAM 20'ye tamamla.
-4. Eğer PDF'te 20'den fazla soru varsa, en kaliteli ve 4. sınıf düzeyine en uygun 20 soruyu seçerek sırala (id: 1'den 20'ye).
-5. Her sorunun A, B, C, D seçeneklerini, doğru cevabını (correctAnswer: 'A' | 'B' | 'C' | 'D') ve kısa pedagojik açıklamasını (explanation) oluştur.`;
+KESİN VE ZORUNLU KURALLAR:
+1. Görseldeki (fotoğraf / ekran görüntüsü) veya PDF'teki içeriği (sorular, paragraflar, okuma metni, grafikler veya formüller) eksiksiz tara ve oku.
+${
+  isReading
+    ? "2. Metne, hikayeye veya konu anlatımına dayalı olarak 4. sınıf düzeyinde TAM 20 adet ÇOKTAN SEÇMELİ (A, B, C, D) okuma-anlama, kavrama, çıkarım ve ana fikir sorusu hazırla."
+    : "2. Görseldeki veya PDF belgesindeki test sorularını algıla, dijitalleştir ve interaktif 4 seçenekli teste dönüştür. Eğer 20'den az soru varsa, görseldeki/PDF'teki soruların konu bağlamını koruyarak 4. sınıf düzeyine uygun benzer sorularla TAM 20 soruya tamamla."
+}
+3. TAM 20 soru üret (id: 1'den 20'ye kadar sıralı).
+4. 20 sorunun 20'si de birbirinden TAMAMEN FARKLI, özgün, bağımsız ve benzersiz olmalıdır.
+5. Soruların metninde "(Kazanım Alıştırması #...)" veya "Tekrar" gibi yapay etiketler KESİNLİKLE yer almayacaktır. Doğrudan özgün soru metnini yaz.
+6. Her sorunun options nesnesinde "A", "B", "C", "D" şıkları bulunmalıdır.
+7. "correctAnswer" kesinlikle "A", "B", "C" veya "D" olmalıdır.
+8. "explanation" alanında 4. sınıf öğrencisinin anlayacağı 1-2 cümlelik pedagojik çözüm açıklaması olsun.`;
 
     const schemaConfig = {
       systemInstruction,
@@ -431,7 +452,7 @@ GÖREV:
         {
           inlineData: {
             data: cleanBase64,
-            mimeType: "application/pdf",
+            mimeType: resolvedMimeType,
           },
         },
         {
@@ -447,7 +468,7 @@ GÖREV:
         config: schemaConfig,
       });
     } catch (primaryErr: any) {
-      console.warn("gemini-3.1-flash-lite PDF error, trying gemini-3.8-flash:", primaryErr?.message);
+      console.warn("gemini-3.1-flash-lite multimodal file error, trying gemini-3.8-flash:", primaryErr?.message);
       modelUsed = "gemini-3.8-flash";
       response = await ai.models.generateContent({
         model: "gemini-3.8-flash",
@@ -458,7 +479,7 @@ GÖREV:
 
     const textOutput = response.text?.trim();
     if (!textOutput) {
-      throw new Error("PDF analizinden boş yanıt alındı.");
+      throw new Error("Dosya analizinden boş yanıt alındı.");
     }
 
     const questions = JSON.parse(textOutput);
@@ -489,12 +510,13 @@ GÖREV:
       success: true,
       count: validatedQuestions.length,
       questions: validatedQuestions,
-      source: `PDF Analizi (${modelUsed})`,
+      source: isImage ? `Görsel Analizi (${modelUsed})` : `PDF Analizi (${modelUsed})`,
     });
   } catch (error: any) {
-    console.error("PDF Quiz generation error:", error?.message);
+    console.error("Multimodal Quiz generation error:", error?.message);
     return res.status(500).json({
-      error: "PDF belgesi analiz edilirken bir hata oluştu: " + (error?.message || "Lütfen dosyanızı kontrol ediniz."),
+      error:
+        "Dosya analiz edilirken bir hata oluştu: " + (error?.message || "Lütfen dosyanızı kontrol ediniz."),
     });
   }
 });
