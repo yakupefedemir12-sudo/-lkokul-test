@@ -77,7 +77,7 @@ export default function App() {
             setActiveQuiz={setActiveQuiz}
             students={students}
             setStudents={setStudents}
-            results={currentQuizResults}
+            results={results}
             refreshData={refreshData}
           />
         )}

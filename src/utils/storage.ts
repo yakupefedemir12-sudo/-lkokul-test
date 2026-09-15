@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   STUDENTS: 'meb4_students',
   RESULTS: 'meb4_results',
   TEACHER_LOGGED_IN: 'meb4_teacher_auth',
+  QUIZZES_ARCHIVE: 'meb4_quizzes_archive',
 };
 
 const DEFAULT_QUIZ: Quiz = {
@@ -47,6 +48,9 @@ export const Storage = {
         return fixedQuiz;
       }
 
+      // Ensure active quiz is also in archive
+      this.saveQuizToArchive(parsed, false);
+
       return parsed;
     } catch {
       return DEFAULT_QUIZ;
@@ -56,9 +60,88 @@ export const Storage = {
   setActiveQuiz(quiz: Quiz): void {
     try {
       localStorage.setItem(STORAGE_KEYS.ACTIVE_QUIZ, JSON.stringify(quiz));
+      this.saveQuizToArchive(quiz, false);
       window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.ACTIVE_QUIZ } }));
     } catch (e) {
       console.error('Failed to save active quiz:', e);
+    }
+  },
+
+  getQuizzesArchive(): Quiz[] {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.QUIZZES_ARCHIVE);
+      if (!data) {
+        const initial = [DEFAULT_QUIZ];
+        localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(initial));
+        return initial;
+      }
+      const parsed = JSON.parse(data);
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        const initial = [DEFAULT_QUIZ];
+        localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(initial));
+        return initial;
+      }
+
+      // Sort by createdAt descending (newest first)
+      return parsed.sort((a, b) => {
+        const timeA = new Date(a.createdAt || 0).getTime();
+        const timeB = new Date(b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+    } catch {
+      return [DEFAULT_QUIZ];
+    }
+  },
+
+  saveQuizToArchive(quiz: Quiz, emitEvent: boolean = true): void {
+    try {
+      const archive = this.getQuizzesArchive();
+      const existingIndex = archive.findIndex((q) => q.id === quiz.id);
+      if (existingIndex >= 0) {
+        archive[existingIndex] = quiz;
+      } else {
+        archive.unshift(quiz);
+      }
+      localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(archive));
+      if (emitEvent) {
+        window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.QUIZZES_ARCHIVE } }));
+      }
+    } catch (e) {
+      console.error('Failed to save quiz to archive:', e);
+    }
+  },
+
+  getAllQuizzes(): Quiz[] {
+    const archive = this.getQuizzesArchive();
+    const active = this.getActiveQuiz();
+    const map = new Map<string, Quiz>();
+    if (active) map.set(active.id, active);
+    archive.forEach((q) => map.set(q.id, q));
+    return Array.from(map.values()).sort((a, b) => {
+      const timeA = new Date(a.createdAt || 0).getTime();
+      const timeB = new Date(b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+  },
+
+  deleteQuiz(quizId: string): void {
+    try {
+      let archive = this.getQuizzesArchive().filter((q) => q.id !== quizId);
+      if (archive.length === 0) {
+        archive = [DEFAULT_QUIZ];
+      }
+      localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(archive));
+      this.clearQuizResults(quizId);
+
+      // If deleted quiz was active quiz, switch active to the first remaining quiz
+      const currentActive = this.getActiveQuiz();
+      if (currentActive.id === quizId) {
+        this.setActiveQuiz(archive[0]);
+      } else {
+        window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.QUIZZES_ARCHIVE } }));
+      }
+    } catch (e) {
+      console.error('Failed to delete quiz:', e);
     }
   },
 
@@ -149,6 +232,7 @@ export const Storage = {
 
   resetAllToDefault(): void {
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_QUIZ);
+    localStorage.removeItem(STORAGE_KEYS.QUIZZES_ARCHIVE);
     localStorage.removeItem(STORAGE_KEYS.STUDENTS);
     localStorage.removeItem(STORAGE_KEYS.RESULTS);
     this.setActiveQuiz(DEFAULT_QUIZ);
