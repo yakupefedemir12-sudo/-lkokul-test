@@ -33,6 +33,9 @@ import {
   Filter,
   Check,
   Search,
+  ChevronDown,
+  ChevronUp,
+  Lightbulb,
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
@@ -66,6 +69,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [archiveSearchQuery, setArchiveSearchQuery] = useState<string>('');
   const [newQuizNotice, setNewQuizNotice] = useState<boolean>(false);
   const [quizActionToast, setQuizActionToast] = useState<string | null>(null);
+  const [quizToDeleteConfirm, setQuizToDeleteConfirm] = useState<Quiz | null>(null);
+  const [expandedQuizIds, setExpandedQuizIds] = useState<Record<string, boolean>>({});
+
+  // Toggle question accordion for a quiz
+  const toggleQuizQuestions = (quizId: string) => {
+    setExpandedQuizIds((prev) => ({
+      ...prev,
+      [quizId]: !prev[quizId],
+    }));
+  };
 
   // All quizzes available in archive & active
   const allQuizzes = useMemo(() => {
@@ -195,19 +208,180 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     setTimeout(() => setNewQuizNotice(false), 8000);
   };
 
-  // Delete quiz from archive
+  // Delete quiz request (opens modal)
   const handleDeleteQuiz = (quizId: string) => {
     const quizToDelete = allQuizzes.find((q) => q.id === quizId);
     if (!quizToDelete) return;
-    if (window.confirm(`"${quizToDelete.subjectName} - ${quizToDelete.topic}" sınavını ve bu sınava ait tüm karne kayıtlarını kalıcı olarak silmek istiyor musunuz?`)) {
-      Storage.deleteQuiz(quizId);
-      if (selectedQuizId === quizId) {
-        setSelectedQuizId(activeQuiz.id);
+    setQuizToDeleteConfirm(quizToDelete);
+  };
+
+  // Perform permanent deletion of quiz and its results
+  const handleConfirmDeleteQuiz = () => {
+    if (!quizToDeleteConfirm) return;
+    const deletedId = quizToDeleteConfirm.id;
+    const deletedTitle = `${quizToDeleteConfirm.subjectName} - ${quizToDeleteConfirm.topic}`;
+
+    Storage.deleteQuiz(deletedId);
+    setQuizToDeleteConfirm(null);
+
+    // If deleted quiz was currently viewed, fallback to active or first available
+    if (selectedQuizId === deletedId) {
+      const remaining = Storage.getAllQuizzes();
+      if (remaining.length > 0) {
+        setSelectedQuizId(remaining[0].id);
       }
-      setQuizActionToast('Sınav arşivden silindi.');
-      setTimeout(() => setQuizActionToast(null), 3000);
-      refreshData();
     }
+
+    setQuizActionToast(`"${deletedTitle}" sınavı ve tüm öğrenci sonuçları kalıcı olarak silindi.`);
+    setTimeout(() => setQuizActionToast(null), 4000);
+    refreshData();
+  };
+
+  // Render question list and answer key accordion for any quiz
+  const renderQuizQuestionsAccordion = (quiz: Quiz) => {
+    const qList = quiz.questions || [];
+    return (
+      <div className="mt-4 pt-4 border-t border-slate-200/90 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+        {/* Accordion Top Header */}
+        <div className="bg-sky-50/90 border border-sky-200/90 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center shrink-0 text-base shadow-inner">
+              📝
+            </div>
+            <div>
+              <h5 className="font-black text-sm text-sky-950 flex items-center gap-2 flex-wrap">
+                <span>{quiz.subjectName} — {quiz.topic}</span>
+                <span className="text-[11px] font-bold bg-sky-100/90 text-sky-800 px-2 py-0.5 rounded-md border border-sky-200">
+                  {qList.length} Soru
+                </span>
+              </h5>
+              <p className="text-xs text-sky-800/80 font-medium mt-0.5">
+                Yeşil işaretler MEB müfredatına uygun doğru cevap anahtarını, sarı kutular soru kazanım/çözüm açıklamalarını gösterir.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => toggleQuizQuestions(quiz.id)}
+            className="text-xs font-black text-sky-700 hover:text-sky-900 bg-white hover:bg-sky-100 border border-sky-300 hover:border-sky-400 px-3 py-1.5 rounded-xl transition-all cursor-pointer self-end sm:self-center flex items-center gap-1 shadow-2xs"
+          >
+            <ChevronUp className="w-3.5 h-3.5" />
+            <span>Soruları Kapat</span>
+          </button>
+        </div>
+
+        {/* Quick Answer Key Summary Ribbon */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
+          <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-100">
+            <span className="text-[11px] font-black uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              Hızlı Cevap Anahtarı ({qList.length} Soru)
+            </span>
+            <span className="text-[11px] text-slate-400 font-semibold">Öğretmen Kontrol Şeridi</span>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {qList.map((item, idx) => (
+              <span
+                key={item.id || idx}
+                className="inline-flex items-center gap-1 text-xs font-bold bg-emerald-50 text-emerald-950 border border-emerald-200 px-2 py-1 rounded-lg shadow-2xs"
+              >
+                <span className="text-slate-500 font-semibold">{idx + 1}:</span>
+                <span className="text-emerald-700 font-black">{item.correctAnswer}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Question Cards (2-column responsive grid) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          {qList.map((question, qIndex) => {
+            return (
+              <div
+                key={question.id || qIndex}
+                className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-2xs hover:border-sky-300 transition-colors flex flex-col justify-between"
+              >
+                <div>
+                  {/* Card Header: Soru no + Doğru Cevap Badge */}
+                  <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-100">
+                    <span className="bg-slate-100 text-slate-800 font-black text-xs px-2.5 py-1 rounded-lg">
+                      Soru {qIndex + 1}
+                    </span>
+                    <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 font-black text-xs px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      Doğru Şık: {question.correctAnswer}
+                    </span>
+                  </div>
+
+                  {/* Question Text */}
+                  <p className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed mb-3">
+                    {question.question}
+                  </p>
+
+                  {/* 4 Options: A, B, C, D */}
+                  <div className="space-y-1.5 mb-2.5">
+                    {(['A', 'B', 'C', 'D'] as const).map((optKey) => {
+                      const isCorrect = question.correctAnswer === optKey;
+                      const optText = question.options ? question.options[optKey] : '';
+                      return (
+                        <div
+                          key={optKey}
+                          className={`text-xs p-2 rounded-xl border flex items-start gap-2 transition-colors ${
+                            isCorrect
+                              ? 'bg-emerald-50 border-emerald-400 text-emerald-950 font-bold'
+                              : 'bg-slate-50/70 border-slate-200/70 text-slate-700'
+                          }`}
+                        >
+                          <span
+                            className={`w-5 h-5 rounded-lg flex items-center justify-center font-black text-[11px] shrink-0 ${
+                              isCorrect
+                                ? 'bg-emerald-600 text-white shadow-2xs'
+                                : 'bg-white border border-slate-300 text-slate-600'
+                            }`}
+                          >
+                            {optKey}
+                          </span>
+                          <span className="pt-0.5 leading-snug break-words flex-1">
+                            {optText}
+                          </span>
+                          {isCorrect && (
+                            <span className="text-[10px] bg-emerald-200 text-emerald-900 px-1.5 py-0.5 rounded font-black shrink-0">
+                              Doğru Şık
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Explanation / Solution */}
+                {question.explanation && (
+                  <div className="mt-2 bg-amber-50/80 border border-amber-200/90 rounded-xl p-2.5 text-[11px] text-amber-950 font-medium leading-relaxed flex items-start gap-1.5">
+                    <Lightbulb className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="font-bold text-amber-900 block mb-0.5">Çözüm / Açıklama:</strong>
+                      <span>{question.explanation}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Bottom Close Bar */}
+        <div className="text-center pt-1">
+          <button
+            onClick={() => toggleQuizQuestions(quiz.id)}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+          >
+            <ChevronUp className="w-3.5 h-3.5" />
+            <span>Soruları ve Cevap Anahtarını Kapat</span>
+          </button>
+        </div>
+      </div>
+    );
   };
 
   // Handle Login
@@ -978,6 +1152,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <Download className="w-3 h-3 text-slate-500" />
                   <span>Excel / CSV İndir</span>
                 </button>
+
+                {/* Sınavı Sil Butonu */}
+                <button
+                  onClick={() => handleDeleteQuiz(currentViewQuiz.id)}
+                  id="results-delete-current-quiz-btn"
+                  className="w-full bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 hover:border-rose-600 font-extrabold py-1.5 px-2 rounded-xl text-[11px] transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  title="Bu sınavı ve tüm öğrenci sonuçlarını kalıcı olarak sil"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Bu Sınavı Sil</span>
+                </button>
               </div>
             </div>
           </div>
@@ -997,6 +1182,25 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => toggleQuizQuestions(currentViewQuiz.id)}
+                    id="results-view-questions-btn"
+                    className={`text-xs font-black px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border ${
+                      expandedQuizIds[currentViewQuiz.id]
+                        ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
+                        : 'bg-sky-50 hover:bg-sky-600 text-sky-700 hover:text-white border-sky-200 hover:border-sky-600 shadow-2xs'
+                    }`}
+                    title="Bu sınavın 20 sorusunu ve cevap anahtarını aç/kapat"
+                  >
+                    <span>📝</span>
+                    <span>{expandedQuizIds[currentViewQuiz.id] ? 'Soruları Kapat' : 'Soruları ve Cevap Anahtarını Gör'}</span>
+                    {expandedQuizIds[currentViewQuiz.id] ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+
                   <button
                     onClick={() => setShowClearConfirm(true)}
                     id="clear-results-btn"
@@ -1137,6 +1341,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Sınav Soruları ve Cevap Anahtarı Akordeonu (Sonuçlar Sekmesi) */}
+          {expandedQuizIds[currentViewQuiz.id] && (
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-6">
+              {renderQuizQuestionsAccordion(currentViewQuiz)}
+            </div>
+          )}
         </div>
       )}
 
@@ -1401,6 +1612,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           <span>Sonuçları İncele ({qTotalCompleted})</span>
                         </button>
 
+                        {/* Mavi Renkli "Soruları ve Cevap Anahtarını Gör" Butonu */}
+                        <button
+                          onClick={() => toggleQuizQuestions(q.id)}
+                          id={`view-quiz-questions-${q.id}`}
+                          className={`font-black px-3 py-2 rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer border ${
+                            expandedQuizIds[q.id]
+                              ? 'bg-sky-600 text-white border-sky-600'
+                              : 'bg-sky-50 hover:bg-sky-600 text-sky-700 hover:text-white border-sky-200 hover:border-sky-600'
+                          }`}
+                          title="Bu sınavın sorularını, seçeneklerini ve doğru cevap anahtarını aç/kapat"
+                        >
+                          <span className="text-xs">📝</span>
+                          <span>{expandedQuizIds[q.id] ? 'Soruları Kapat' : 'Soruları ve Cevap Anahtarını Gör'}</span>
+                          {expandedQuizIds[q.id] ? (
+                            <ChevronUp className="w-3.5 h-3.5 ml-0.5" />
+                          ) : (
+                            <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
+                          )}
+                        </button>
+
                         {/* Aktif Sınav Yap Butonu (Eğer şu anda aktif değilse) */}
                         {!isCurrentActive && (
                           <button
@@ -1436,19 +1667,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           <span className="hidden sm:inline">Excel</span>
                         </button>
 
-                        {/* Sil Butonu (Yalnızca 1'den fazla test varsa) */}
-                        {allQuizzes.length > 1 && (
-                          <button
-                            onClick={() => handleDeleteQuiz(q.id)}
-                            id={`delete-quiz-${q.id}`}
-                            title="Bu sınavı ve sonuçlarını arşivden sil"
-                            className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                        {/* Sınavı Sil Butonu (Kırmızı renkli, çöp kutusu simgeli) */}
+                        <button
+                          onClick={() => handleDeleteQuiz(q.id)}
+                          id={`delete-quiz-${q.id}`}
+                          title="Bu sınavı ve tüm öğrenci sonuçlarını kalıcı olarak sil"
+                          className="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 hover:border-rose-600 font-extrabold px-2.5 py-2 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                          <span>Sınavı Sil</span>
+                        </button>
                       </div>
                     </div>
+
+                    {/* Sorular ve Cevap Anahtarı Akordeonu */}
+                    {expandedQuizIds[q.id] && renderQuizQuestionsAccordion(q)}
                   </div>
                 );
               })
@@ -2215,6 +2448,67 @@ ${activeQuiz.subjectName} dersi '${activeQuiz.topic}' pekiştirme testimiz hazı
                 className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors cursor-pointer"
               >
                 Evet, Temizle
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Quiz Confirmation Modal */}
+      {quizToDeleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 text-center space-y-4 shadow-2xl border border-slate-200">
+            <div className="w-14 h-14 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
+              <Trash2 className="w-7 h-7" />
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[11px] font-black uppercase tracking-wider text-rose-600 bg-rose-50 border border-rose-200 px-2.5 py-0.5 rounded-full inline-block">
+                Kalıcı Silme Onayı
+              </span>
+              <h3 className="text-lg font-black text-slate-800 font-['Plus_Jakarta_Sans',sans-serif] pt-1">
+                Sınavı Silmek İstiyor musunuz?
+              </h3>
+            </div>
+
+            <div className="bg-rose-50/70 border border-rose-150 rounded-2xl p-3.5 text-left text-xs space-y-1 text-slate-700">
+              <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                <span>{quizToDeleteConfirm.subjectName} — {quizToDeleteConfirm.topic}</span>
+              </p>
+              <p className="text-[11px] text-slate-500 font-medium">
+                {quizToDeleteConfirm.title} ({quizToDeleteConfirm.questions?.length || 20} Soru)
+              </p>
+              <p className="text-[10px] font-mono text-slate-400">
+                Sınav ID: {quizToDeleteConfirm.id}
+              </p>
+            </div>
+
+            <p className="text-xs text-rose-700 font-bold bg-rose-50/50 p-2.5 rounded-xl border border-rose-200/60">
+              Bu sınavı ve tüm öğrenci sonuçlarını kalıcı olarak silmek istediğinize emin misiniz?
+            </p>
+
+            <p className="text-[11px] text-slate-500">
+              Bu işlem geri alınamaz. Sınava ait tüm öğrenci karne kayıtları, cevaplar ve puanlar sistemden tamamen temizlenir.
+            </p>
+
+            <div className="flex gap-2.5 justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => setQuizToDeleteConfirm(null)}
+                id="cancel-delete-quiz-btn"
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteQuiz}
+                id="confirm-delete-quiz-btn"
+                className="flex-1 py-2.5 rounded-xl text-xs font-black text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-sm shadow-rose-600/30 cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Evet, Kalıcı Olarak Sil</span>
               </button>
             </div>
           </div>
