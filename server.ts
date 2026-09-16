@@ -269,20 +269,23 @@ KESİN VE ZORUNLU KURALLAR:
     };
 
     let response;
-    let modelUsed = "gemini-3.1-flash-lite";
+    let modelUsed = "gemini-3.1-flash";
 
-    // Try primary fast model, fallback to 3.8-flash if needed
+    // Birincil Model: gemini-3.1-flash | Hata durumunda otomatik yedek: gemini-2.5-flash
     try {
       response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite",
+        model: "gemini-3.1-flash",
         contents: userPrompt,
         config: schemaConfig,
       });
     } catch (primaryErr: any) {
-      console.warn("gemini-3.1-flash-lite failed, trying gemini-3.8-flash:", primaryErr?.message);
-      modelUsed = "gemini-3.8-flash";
+      console.warn(
+        "gemini-3.1-flash isteği başarısız oldu, yedek model (gemini-2.5-flash) devreye giriyor:",
+        primaryErr?.message || primaryErr
+      );
+      modelUsed = "gemini-2.5-flash";
       response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
+        model: "gemini-2.5-flash",
         contents: userPrompt,
         config: schemaConfig,
       });
@@ -445,7 +448,7 @@ ${
     };
 
     let response;
-    let modelUsed = "gemini-3.1-flash-lite";
+    let modelUsed = "gemini-3.1-flash";
 
     const multimodalContents = {
       parts: [
@@ -461,17 +464,21 @@ ${
       ],
     };
 
+    // Birincil Model: gemini-3.1-flash | Hata durumunda otomatik yedek: gemini-2.5-flash
     try {
       response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite",
+        model: "gemini-3.1-flash",
         contents: multimodalContents,
         config: schemaConfig,
       });
     } catch (primaryErr: any) {
-      console.warn("gemini-3.1-flash-lite multimodal file error, trying gemini-3.8-flash:", primaryErr?.message);
-      modelUsed = "gemini-3.8-flash";
+      console.warn(
+        "gemini-3.1-flash multimodal dosya analizi isteği başarısız oldu, yedek model (gemini-2.5-flash) devreye giriyor:",
+        primaryErr?.message || primaryErr
+      );
+      modelUsed = "gemini-2.5-flash";
       response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
+        model: "gemini-2.5-flash",
         contents: multimodalContents,
         config: schemaConfig,
       });
