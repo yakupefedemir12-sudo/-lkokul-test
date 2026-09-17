@@ -268,16 +268,40 @@ KESİN VE ZORUNLU KURALLAR:
       },
     };
 
-    let response;
-    const modelUsed = "gemini-3.6-flash";
+    const candidateModels = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"];
+    let response: any = null;
+    let modelUsed = candidateModels[0];
+    let lastError: any = null;
 
-    response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: userPrompt,
-      config: schemaConfig,
-    });
+    for (let i = 0; i < candidateModels.length; i++) {
+      const currentModel = candidateModels[i];
+      try {
+        console.log(`[AI Quiz Generation] Model deneniyor: ${currentModel} (${i + 1}/${candidateModels.length})`);
+        response = await ai.models.generateContent({
+          model: currentModel,
+          contents: userPrompt,
+          config: schemaConfig,
+        });
+        modelUsed = currentModel;
+        lastError = null;
+        break; // Başarılı, döngüden çık
+      } catch (err: any) {
+        lastError = err;
+        console.warn(
+          `[AI Quiz Generation] Model '${currentModel}' hata verdi (${err?.status || err?.message || 'Bilinmeyen hata'}).`
+        );
+        if (i < candidateModels.length - 1) {
+          console.log(`[AI Quiz Generation] 2 saniye bekleniyor ve bir sonraki modele geçiliyor: ${candidateModels[i + 1]}...`);
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      }
+    }
 
-    const textOutput = response.text?.trim();
+    if (!response && lastError) {
+      throw lastError;
+    }
+
+    const textOutput = response?.text?.trim();
     if (!textOutput) {
       throw new Error("Yapay zekâdan boş yanıt alındı.");
     }
@@ -316,7 +340,7 @@ KESİN VE ZORUNLU KURALLAR:
       source: modelUsed,
     });
   } catch (error: any) {
-    console.error("Gemini quiz generation error, using 20-question authentic fallback:", error?.message);
+    console.warn("Tüm Gemini modelleri veya ayrıştırma hatası, Acil Durum Emniyet Sibopu devrede:", error?.message);
     const localQuestions = getFallbackQuestions(subject, topic);
 
     return res.json({
@@ -324,7 +348,7 @@ KESİN VE ZORUNLU KURALLAR:
       count: localQuestions.length,
       fallbackUsed: true,
       questions: localQuestions,
-      source: "MEB 4. Sınıf Soru Bankası",
+      source: "MEB 4. Sınıf Soru Bankası (Yedek Motor)",
     });
   }
 });
@@ -374,6 +398,11 @@ app.post("/api/generate-quiz-pdf", async (req, res) => {
 
   // Strip prefix like "data:image/jpeg;base64," or "data:application/pdf;base64," if present
   const cleanBase64 = rawBase64.replace(/^data:[^;]+;base64,/, "");
+
+  const candidateModels = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"];
+  let response: any = null;
+  let modelUsed = candidateModels[0];
+  let lastError: any = null;
 
   try {
     const isReading = mode === "reading_comprehension";
@@ -433,9 +462,6 @@ ${
       },
     };
 
-    let response;
-    const modelUsed = "gemini-3.6-flash";
-
     const multimodalContents = {
       parts: [
         {
@@ -450,13 +476,35 @@ ${
       ],
     };
 
-    response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: multimodalContents,
-      config: schemaConfig,
-    });
+    for (let i = 0; i < candidateModels.length; i++) {
+      const currentModel = candidateModels[i];
+      try {
+        console.log(`[Multimodal Quiz] Model deneniyor: ${currentModel} (${i + 1}/${candidateModels.length})`);
+        response = await ai.models.generateContent({
+          model: currentModel,
+          contents: multimodalContents,
+          config: schemaConfig,
+        });
+        modelUsed = currentModel;
+        lastError = null;
+        break; // Başarılı
+      } catch (err: any) {
+        lastError = err;
+        console.warn(
+          `[Multimodal Quiz] Model '${currentModel}' hata verdi (${err?.status || err?.message || 'Bilinmeyen hata'}).`
+        );
+        if (i < candidateModels.length - 1) {
+          console.log(`[Multimodal Quiz] 2 saniye bekleniyor ve bir sonraki modele geçiliyor: ${candidateModels[i + 1]}...`);
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      }
+    }
 
-    const textOutput = response.text?.trim();
+    if (!response && lastError) {
+      throw lastError;
+    }
+
+    const textOutput = response?.text?.trim();
     if (!textOutput) {
       throw new Error("Dosya analizinden boş yanıt alındı.");
     }
@@ -492,10 +540,17 @@ ${
       source: isImage ? `Görsel Analizi (${modelUsed})` : `PDF Analizi (${modelUsed})`,
     });
   } catch (error: any) {
-    console.error("Multimodal Quiz generation error:", error?.message);
-    return res.status(500).json({
-      error:
-        "Dosya analiz edilirken bir hata oluştu: " + (error?.message || "Lütfen dosyanızı kontrol ediniz."),
+    console.warn("Multimodal analizde tüm modeller veya ayrıştırma başarısız oldu, Acil Durum Emniyet Sibopu devrede:", error?.message);
+    const matchedSubject = subjectName || (mode === "reading_comprehension" ? "Türkçe" : "Matematik");
+    const matchedTopic = topicName || rawName || "4. Sınıf Genel Tekrar";
+    const localQuestions = getFallbackQuestions(matchedSubject, matchedTopic);
+
+    return res.json({
+      success: true,
+      count: localQuestions.length,
+      fallbackUsed: true,
+      questions: localQuestions,
+      source: "MEB 4. Sınıf Soru Bankası (Yedek Motor)",
     });
   }
 });

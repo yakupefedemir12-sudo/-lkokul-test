@@ -39,6 +39,9 @@ import {
   ChevronUp,
   Lightbulb,
   PauseCircle,
+  BarChart3,
+  TrendingDown,
+  Target,
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
@@ -74,6 +77,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [quizActionToast, setQuizActionToast] = useState<string | null>(null);
   const [quizToDeleteConfirm, setQuizToDeleteConfirm] = useState<Quiz | null>(null);
   const [expandedQuizIds, setExpandedQuizIds] = useState<Record<string, boolean>>({});
+  const [showAllQuestionsAnalysis, setShowAllQuestionsAnalysis] = useState<boolean>(false);
+  const [selectedAnalysisQuestion, setSelectedAnalysisQuestion] = useState<any | null>(null);
 
   // Toggle question accordion for a quiz
   const toggleQuizQuestions = (quizId: string) => {
@@ -111,6 +116,84 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     if (!currentViewQuiz) return [];
     return results.filter((r) => r.quizId === currentViewQuiz.id);
   }, [results, currentViewQuiz?.id]);
+
+  // Soru Başarı ve Kazanım Analizi Hesaplamaları (1-20 Soru)
+  const questionAnalysis = useMemo(() => {
+    if (!currentViewQuiz || !currentViewQuiz.questions || currentViewQuiz.questions.length === 0) {
+      return { stats: [], topWrongQuestions: [] };
+    }
+
+    const totalSubmissions = viewingResults.length;
+    const questions = currentViewQuiz.questions;
+
+    const stats = questions.map((q, idx) => {
+      const qNum = idx + 1;
+      let correct = 0;
+      let wrong = 0;
+      let empty = 0;
+      const optionCounts: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+
+      if (totalSubmissions > 0) {
+        viewingResults.forEach((res) => {
+          // res.answers is an array of StudentAnswer: { questionId, selectedOption, isCorrect }
+          const ansObj = res.answers?.find((a) => a.questionId === qNum || a.questionId === q.id);
+          const selected = ansObj?.selectedOption;
+          if (!selected) {
+            empty++;
+          } else {
+            if (['A', 'B', 'C', 'D'].includes(selected)) {
+              optionCounts[selected] = (optionCounts[selected] || 0) + 1;
+            }
+            if (selected === q.correctAnswer) {
+              correct++;
+            } else {
+              wrong++;
+            }
+          }
+        });
+      }
+
+      const successRate = totalSubmissions > 0 ? Math.round((correct / totalSubmissions) * 100) : 0;
+      const wrongRate = totalSubmissions > 0 ? Math.round((wrong / totalSubmissions) * 100) : 0;
+
+      // Find top wrong choice
+      let mostCommonWrongChoice: string | null = null;
+      let mostCommonWrongCount = 0;
+      ['A', 'B', 'C', 'D'].forEach((opt) => {
+        if (opt !== q.correctAnswer && optionCounts[opt] > mostCommonWrongCount) {
+          mostCommonWrongCount = optionCounts[opt];
+          mostCommonWrongChoice = opt;
+        }
+      });
+
+      return {
+        qNum,
+        question: q,
+        correct,
+        wrong,
+        empty,
+        totalSubmissions,
+        successRate,
+        wrongRate,
+        optionCounts,
+        mostCommonWrongChoice,
+        mostCommonWrongCount,
+      };
+    });
+
+    // Sınıfın En Çok Yanlış Yaptığı İlk 3 Soru
+    const topWrongQuestions = [...stats]
+      .filter((s) => s.totalSubmissions > 0 && s.wrong > 0)
+      .sort((a, b) => {
+        if (b.wrong !== a.wrong) {
+          return b.wrong - a.wrong;
+        }
+        return a.successRate - b.successRate;
+      })
+      .slice(0, 3);
+
+    return { stats, topWrongQuestions };
+  }, [currentViewQuiz, viewingResults]);
 
   const filteredQuizzes = useMemo(() => {
     return allQuizzes.filter((q) => {
@@ -1337,6 +1420,216 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* Soru Başarı ve Kazanım Analizi Bölümü (1-20 Soru Başarı Oranları ve En Çok Yanlış Yapılan 3 Soru) */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-5 sm:p-6 mb-6">
+            <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-base flex items-center gap-2">
+                    <span>Soru Başarı ve Kazanım Analizi</span>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                      20 Soru
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Sınıfın her sorudaki başarı yüzdesi, doğru/yanlış dağılımı ve pedagojik analiz
+                  </p>
+                </div>
+              </div>
+
+              {/* Accordion Toggle Button & Legend Badges */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setShowAllQuestionsAnalysis((prev) => !prev)}
+                  id="toggle-all-questions-analysis-btn"
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer border ${
+                    showAllQuestionsAnalysis
+                      ? 'bg-amber-50 text-amber-900 border-amber-300 shadow-2xs'
+                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  <BarChart3 className="w-3.5 h-3.5 text-amber-600" />
+                  <span>{showAllQuestionsAnalysis ? '20 Soruluk Dağılımı Gizle' : '📊 Tüm 20 Sorunun Dağılımını Göster'}</span>
+                  {showAllQuestionsAnalysis ? (
+                    <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                  )}
+                </button>
+
+                <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold">
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span>%70+</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
+                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                    <span>%50-%69</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200">
+                    <span className="w-2 h-2 rounded-full bg-rose-500" />
+                    <span>&lt;%50</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {viewingResults.length === 0 ? (
+              <div className="py-8 text-center text-slate-400 text-xs">
+                <AlertCircle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                Henüz sınava katılan öğrenci bulunmuyor. Öğrenciler testleri tamamladıkça 20 soruluk başarı grafiği burada otomatik hesaplanacaktır.
+              </div>
+            ) : (
+              <div className="space-y-4 pt-4">
+                {/* 1. Sınıfın En Çok Yanlış Yaptığı İlk 3 Soru (Alarm Paneli - Her Zaman Öne Çıkarılan Bölüm) */}
+                {questionAnalysis.topWrongQuestions.length > 0 ? (
+                  <div className="bg-rose-50/60 border border-rose-200 rounded-2xl p-4 sm:p-5">
+                    <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-rose-500 text-white flex items-center justify-center font-bold shadow-xs">
+                          <TrendingDown className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs sm:text-sm font-black text-rose-900 flex items-center gap-1.5">
+                            <span>🚨 Sınıfın En Çok Yanlış Yaptığı İlk {questionAnalysis.topWrongQuestions.length} Soru (Kazanım Uyarısı)</span>
+                          </h4>
+                          <p className="text-[11px] text-rose-700">
+                            Akıllı tahtada öncelikli çözülmesi ve kazanım tekrarı önerilen sorular (Ayrıntı için karta tıklayın)
+                          </p>
+                        </div>
+                      </div>
+
+                      <span className="text-[11px] font-bold text-rose-800 bg-rose-100/80 px-2.5 py-1 rounded-lg border border-rose-200">
+                        Öncelikli Telafi
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {questionAnalysis.topWrongQuestions.map((top, idx) => (
+                        <div
+                          key={top.qNum}
+                          onClick={() => setSelectedAnalysisQuestion(top)}
+                          className="bg-white rounded-xl p-3.5 border border-rose-200 hover:border-rose-400 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between group"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-black px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 group-hover:bg-rose-600 group-hover:text-white transition-colors">
+                                #{idx + 1} • Soru {top.qNum}
+                              </span>
+                              <span className="text-xs font-extrabold text-rose-600">
+                                {top.wrong} Yanlış (%{top.wrongRate})
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-slate-800 font-medium mb-3 line-clamp-2 leading-relaxed">
+                              {top.question.question}
+                            </p>
+
+                            <div className="space-y-1.5 text-[11px] bg-slate-50 p-2.5 rounded-lg border border-slate-100 mb-2">
+                              <div className="flex items-center justify-between text-emerald-800 font-bold">
+                                <span>Doğru Cevap:</span>
+                                <span className="px-1.5 py-0.5 bg-emerald-100 rounded text-emerald-900 font-black">
+                                  {top.question.correctAnswer}) {top.question.options[top.question.correctAnswer]}
+                                </span>
+                              </div>
+
+                              {top.mostCommonWrongChoice && (
+                                <div className="flex items-center justify-between text-rose-800 font-bold">
+                                  <span>En Çok Yanıltan:</span>
+                                  <span className="px-1.5 py-0.5 bg-rose-100 rounded text-rose-900 font-black">
+                                    {top.mostCommonWrongChoice}) ({top.mostCommonWrongCount} öğrenci)
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 group-hover:text-slate-700">
+                            <span>🔍 Tam Metin & Analiz</span>
+                            <span className="font-bold text-rose-600">Tıkla ve İncele →</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <p className="text-xs text-emerald-800 font-semibold">
+                      Tebrikler! Sınıf genelinde kritik düzeyde başarısız olunan belirgin bir soru bulunmuyor.
+                    </p>
+                  </div>
+                )}
+
+                {/* 2. Kompakt ve İsteğe Bağlı (Akordeon) 20 Soru Başarı Dağılımı */}
+                {showAllQuestionsAnalysis && (
+                  <div className="mt-4 pt-4 border-t border-slate-100 animate-fadeIn">
+                    <div className="flex items-center justify-between mb-3">
+                      <h5 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Target className="w-3.5 h-3.5 text-slate-500" />
+                        <span>1'den 20'ye Tüm Soruların Başarı Çubukları (Kompakt Görünüm)</span>
+                      </h5>
+                      <span className="text-[11px] text-slate-400">
+                        Detayını görmek istediğiniz soruya tıklayabilirsiniz
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
+                      {questionAnalysis.stats.map((stat) => {
+                        const pct = stat.successRate;
+                        let barColor = 'bg-emerald-500';
+                        let badgeBg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+
+                        if (pct < 50) {
+                          barColor = 'bg-rose-500';
+                          badgeBg = 'bg-rose-50 text-rose-700 border-rose-200';
+                        } else if (pct < 70) {
+                          barColor = 'bg-amber-500';
+                          badgeBg = 'bg-amber-50 text-amber-700 border-amber-200';
+                        }
+
+                        return (
+                          <div
+                            key={stat.qNum}
+                            onClick={() => setSelectedAnalysisQuestion(stat)}
+                            className="bg-slate-50 hover:bg-amber-50/70 p-2.5 rounded-xl border border-slate-200 hover:border-amber-300 transition-all cursor-pointer group flex flex-col justify-between"
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-extrabold text-[11px] text-slate-800 group-hover:text-amber-900">
+                                Soru {stat.qNum}
+                              </span>
+                              <span className={`text-[9px] font-black px-1.5 py-0.2 rounded border ${badgeBg}`}>
+                                %{pct}
+                              </span>
+                            </div>
+
+                            {/* Compact Progress Bar */}
+                            <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden my-1">
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+
+                            <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
+                              <span className="text-emerald-700 font-bold">✓{stat.correct}</span>
+                              <span className="text-rose-700 font-bold">✗{stat.wrong}</span>
+                              <span className="font-mono font-bold text-slate-700">[{stat.question.correctAnswer}]</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Results Main Section */}
@@ -2823,6 +3116,116 @@ ${activeQuiz.subjectName || 'Ders'} dersi '${activeQuiz.topic || 'Konu'}' pekiş
           <div className="bg-slate-900 text-white text-xs font-bold px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 border border-slate-700">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{quizActionToast}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Soru Detay ve Akıllı Tahta İnceleme Modalı */}
+      {selectedAnalysisQuestion && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 relative my-8">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <span className="w-8 h-8 rounded-xl bg-amber-500 text-white font-black text-sm flex items-center justify-center shadow-xs">
+                  {selectedAnalysisQuestion.qNum}
+                </span>
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-base">
+                    Soru {selectedAnalysisQuestion.qNum} Detaylı Analizi
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Sınıf Başarısı: %{selectedAnalysisQuestion.successRate} • {selectedAnalysisQuestion.correct} Doğru / {selectedAnalysisQuestion.wrong} Yanlış
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedAnalysisQuestion(null)}
+                className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center font-bold transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="py-4 space-y-4">
+              {/* Soru Metni */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <p className="text-sm font-bold text-slate-900 leading-relaxed">
+                  {selectedAnalysisQuestion.question.question}
+                </p>
+              </div>
+
+              {/* Şıklar */}
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-600 block">Şıklar ve Sınıf Dağılımı:</span>
+                {(['A', 'B', 'C', 'D'] as const).map((opt) => {
+                  const isCorrect = selectedAnalysisQuestion.question.correctAnswer === opt;
+                  const count = selectedAnalysisQuestion.optionCounts?.[opt] || 0;
+                  const isTopDistractor = selectedAnalysisQuestion.mostCommonWrongChoice === opt;
+
+                  let borderStyle = 'border-slate-200 bg-white text-slate-700';
+                  if (isCorrect) {
+                    borderStyle = 'border-emerald-500 bg-emerald-50/70 text-emerald-950 font-bold';
+                  } else if (isTopDistractor && count > 0) {
+                    borderStyle = 'border-rose-400 bg-rose-50/70 text-rose-950 font-bold';
+                  }
+
+                  return (
+                    <div
+                      key={opt}
+                      className={`p-3 rounded-xl border flex items-center justify-between text-xs transition-colors ${borderStyle}`}
+                    >
+                      <div className="flex items-center gap-2 flex-1 pr-2">
+                        <span className={`w-6 h-6 rounded-lg flex items-center justify-center font-black shrink-0 ${
+                          isCorrect ? 'bg-emerald-600 text-white' : isTopDistractor && count > 0 ? 'bg-rose-500 text-white' : 'bg-slate-200 text-slate-700'
+                        }`}>
+                          {opt}
+                        </span>
+                        <span>{selectedAnalysisQuestion.question.options[opt]}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {isCorrect && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-200 text-emerald-800">
+                            DOĞRU ŞIK
+                          </span>
+                        )}
+                        {isTopDistractor && count > 0 && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-200 text-rose-800">
+                            ÇELDİRİCİ
+                          </span>
+                        )}
+                        <span className="text-[11px] font-mono text-slate-500 font-bold ml-1">
+                          {count} Öğrenci
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Çözüm ve Açıklama */}
+              {selectedAnalysisQuestion.question.explanation && (
+                <div className="bg-amber-50/80 p-3.5 rounded-2xl border border-amber-200 text-xs">
+                  <div className="flex items-center gap-1.5 font-black text-amber-900 mb-1">
+                    <Lightbulb className="w-4 h-4 text-amber-600" />
+                    <span>Öğretmen Çözüm Rehberi & İpucu</span>
+                  </div>
+                  <p className="text-amber-950/90 leading-relaxed font-medium">
+                    {selectedAnalysisQuestion.question.explanation}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedAnalysisQuestion(null)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-colors cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
           </div>
         </div>
       )}
