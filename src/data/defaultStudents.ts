@@ -34,5 +34,6 @@ export const DEFAULT_STUDENTS: Student[] = [
   { id: 'std-277', no: 277, name: 'Hazal Altuntaş' },
   { id: 'std-927', no: 927, name: 'Muhammet Ali Sütcü' },
   { id: 'std-960', no: 960, name: 'Eslem Özkan' },
+  { id: 'std-969', no: 969, name: 'Burak Efe Yerler' },
   { id: 'std-998', no: 998, name: 'Hira Dolu' },
 ];
