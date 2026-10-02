@@ -80,6 +80,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [isSavingNote, setIsSavingNote] = useState<boolean>(false);
   const [expandedStudentExamIds, setExpandedStudentExamIds] = useState<Record<string, boolean>>({});
   const [whatsAppReportCopied, setWhatsAppReportCopied] = useState<boolean>(false);
+  const [backupRestoreToast, setBackupRestoreToast] = useState<string | null>(null);
+  const backupFileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   // Archive & Selected Quiz State
   const [selectedQuizId, setSelectedQuizId] = useState<string>(activeQuiz?.id || '');
@@ -502,6 +504,50 @@ _Değerli velimiz, evde yukarıdaki konu ve kazanımların tekrar edilmesi öğr
     setQuizActionToast('Sınav yayından kaldırıldı. Öğrenci ekranı bekleme moduna alındı.');
     setTimeout(() => setQuizActionToast(null), 4000);
     refreshData();
+  };
+
+  // JSON Backup Exporter
+  const handleExportBackup = () => {
+    try {
+      const jsonStr = Storage.exportBackupJson();
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const nowStr = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `tokat-erbaa-4d-sinav-ve-karne-yedek-${nowStr}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setBackupRestoreToast('Tüm sınavlar ve 35 öğrencinin karneleri başarıyla JSON dosyası olarak indirildi!');
+      setTimeout(() => setBackupRestoreToast(null), 4000);
+    } catch (e: any) {
+      alert('Yedek indirilirken hata oluştu: ' + e?.message);
+    }
+  };
+
+  // JSON Backup Importer & Instant Server Rehydration
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const res = await Storage.importBackupJson(text);
+      if (res.success) {
+        setBackupRestoreToast(`Yedek başarıyla yüklendi! (${res.quizCount} sınav, ${res.resultCount} karne sunucuya aktarıldı)`);
+        setTimeout(() => setBackupRestoreToast(null), 5000);
+        refreshData();
+      } else {
+        alert('Geri yükleme başarısız: ' + (res.error || 'Bilinmeyen hata'));
+      }
+    } catch (err: any) {
+      alert('Dosya okunurken hata oluştu: ' + err?.message);
+    } finally {
+      if (backupFileInputRef.current) {
+        backupFileInputRef.current.value = '';
+      }
+    }
   };
 
   // Helper for "Yeni Sınav Başlat" button
@@ -1124,8 +1170,8 @@ _Değerli velimiz, evde yukarıdaki konu ve kazanımların tekrar edilmesi öğr
             </button>
 
             <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-semibold">
-              <span>Varsayılan Şifre:</span>
-              <span className="bg-slate-100 px-2 py-0.5 rounded font-mono font-black text-slate-700">ogretmen123</span>
+              <span>Öğretmen Şifresi:</span>
+              <span className="bg-slate-100 px-2 py-0.5 rounded font-mono font-black text-slate-700">1051hmz+</span>
             </div>
           </form>
         </div>
@@ -2058,13 +2104,68 @@ _Değerli velimiz, evde yukarıdaki konu ve kazanımların tekrar edilmesi öğr
                 </div>
               </div>
 
+              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                {/* 1. JSON YEDEK İNDİR */}
+                <button
+                  onClick={handleExportBackup}
+                  id="export-backup-btn"
+                  className="bg-slate-900 hover:bg-slate-800 text-white font-black px-3.5 py-2.5 rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
+                  title="Tüm sınavları ve 35 öğrencinin karnelerini tek bir JSON yedek dosyası olarak bilgisayar veya telefonunuza indirin"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-400" />
+                  <span>💾 Tüm Verileri İndir (JSON Yedek)</span>
+                </button>
+
+                {/* 2. YEDEKTEN GERİ YÜKLE */}
+                <input
+                  type="file"
+                  ref={backupFileInputRef}
+                  onChange={handleImportBackup}
+                  accept=".json"
+                  className="hidden"
+                />
+                <button
+                  onClick={() => backupFileInputRef.current?.click()}
+                  id="import-backup-btn"
+                  className="bg-white hover:bg-slate-100 text-slate-700 border-2 border-slate-300 hover:border-slate-400 font-black px-3.5 py-2.5 rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
+                  title="Daha önce indirdiğiniz JSON dosyasını seçerek tüm sınavları ve sonuçları 1 saniyede geri yükleyin"
+                >
+                  <UploadCloud className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>📥 Yedekten Geri Yükle</span>
+                </button>
+
+                {/* 3. YENİ SINAV BAŞLAT */}
+                <button
+                  onClick={handleStartNewQuizFlow}
+                  id="archive-create-new-quiz-btn"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-4 py-2.5 rounded-xl text-xs transition-colors flex items-center gap-2 shadow-sm shadow-indigo-600/25 cursor-pointer whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>+ Yeni Sınav Başlat</span>
+                </button>
+              </div>
+            </div>
+
+            {backupRestoreToast && (
+              <div className="mt-4 p-3.5 bg-emerald-50 border border-emerald-300 rounded-2xl text-xs font-bold text-emerald-900 flex items-center gap-2 animate-in fade-in duration-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{backupRestoreToast}</span>
+              </div>
+            )}
+
+            {/* Çift Katmanlı Hafıza Kalkanı Rozeti */}
+            <div className="mt-4 p-3 bg-indigo-50/70 border border-indigo-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-indigo-950 font-bold">
+                <span className="text-base shrink-0">🛡️</span>
+                <span>
+                  <strong>Kalıcı Çift Katmanlı Hafıza Kalkanı:</strong> Sınavlar ve öğrenci karneleri hem sunucu diski hem bu tarayıcıda yedekli tutulur. Render deploy veya disk sıfırlanmasında tarayıcınız sunucuyu anında ayağa kaldırır (Auto-Rehydration).
+                </span>
+              </div>
               <button
-                onClick={handleStartNewQuizFlow}
-                id="archive-create-new-quiz-btn"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-4 py-2.5 rounded-xl text-xs transition-colors flex items-center gap-2 shadow-sm shadow-indigo-600/25 cursor-pointer whitespace-nowrap"
+                onClick={handleExportBackup}
+                className="text-indigo-700 hover:text-indigo-900 font-black text-[11px] underline cursor-pointer shrink-0 self-end sm:self-center"
               >
-                <Plus className="w-4 h-4 stroke-[3]" />
-                <span>+ Yeni Sınav Başlat</span>
+                Çevrimdışı Yedek Al
               </button>
             </div>
 

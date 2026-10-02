@@ -69,16 +69,6 @@ interface DbSchema {
 const DB_DIR = path.join(process.cwd(), "data");
 const DB_FILE = path.join(DB_DIR, "db.json");
 
-const DEFAULT_INITIAL_QUIZ: ServerQuizItem = {
-  id: 'quiz-meb-4-default',
-  title: 'Matematik 4. Sınıf - Doğal Sayılar ve Basamak Değeri Değerlendirme Testi',
-  subjectId: 'matematik',
-  subjectName: 'Matematik',
-  topic: 'Doğal Sayılar ve Basamak Değeri',
-  createdAt: new Date().toISOString(),
-  questions: getFallbackQuestions('Matematik', 'Doğal Sayılar ve Basamak Değeri'),
-};
-
 function saveDb(data: DbSchema) {
   try {
     if (!fs.existsSync(DB_DIR)) {
@@ -98,21 +88,39 @@ function loadDb(): DbSchema {
     if (fs.existsSync(DB_FILE)) {
       const content = fs.readFileSync(DB_FILE, "utf-8");
       const parsed = JSON.parse(content);
+
+      // Cleanse any legacy mock / seed data (quiz-meb-4-default or dummy results)
+      const cleanedActiveQuiz =
+        parsed.activeQuiz && parsed.activeQuiz.id !== 'quiz-meb-4-default'
+          ? parsed.activeQuiz
+          : null;
+
+      const cleanedQuizzes = Array.isArray(parsed.quizzes)
+        ? parsed.quizzes.filter((q: any) => q && q.id && q.id !== 'quiz-meb-4-default')
+        : [];
+
+      const cleanedResults = Array.isArray(parsed.results)
+        ? parsed.results.filter(
+            (r: any) => r && r.quizId !== 'quiz-meb-4-default' && r.id !== 'res-test-1'
+          )
+        : [];
+
       return {
-        activeQuiz: parsed.activeQuiz !== undefined ? parsed.activeQuiz : DEFAULT_INITIAL_QUIZ,
-        quizzes: Array.isArray(parsed.quizzes) && parsed.quizzes.length > 0 ? parsed.quizzes : [DEFAULT_INITIAL_QUIZ],
+        activeQuiz: cleanedActiveQuiz,
+        quizzes: cleanedQuizzes,
         students: Array.isArray(parsed.students) && parsed.students.length > 0 ? parsed.students : DEFAULT_STUDENTS,
-        results: Array.isArray(parsed.results) ? parsed.results : [],
+        results: cleanedResults,
         studentNotes: parsed.studentNotes && typeof parsed.studentNotes === "object" ? parsed.studentNotes : {},
       };
     }
   } catch (err) {
-    console.warn("[Sunucu Veritabanı] db.json okunurken uyarı alındı, varsayılanlar yükleniyor:", err);
+    console.warn("[Sunucu Veritabanı] db.json okunurken uyarı alındı, tertemiz başlangıç yapılıyor:", err);
   }
 
+  // TERTEMİZ BAŞLANGIÇ (Sıfır KM: 0 Sınav, 0 Sonuç, activeQuiz = null, 35 Öğrenci)
   const initialDb: DbSchema = {
-    activeQuiz: DEFAULT_INITIAL_QUIZ,
-    quizzes: [DEFAULT_INITIAL_QUIZ],
+    activeQuiz: null,
+    quizzes: [],
     students: DEFAULT_STUDENTS,
     results: [],
     studentNotes: {},
@@ -126,15 +134,17 @@ let serverActiveQuiz: ServerQuizItem | null = db.activeQuiz;
 let serverStudents: any[] = db.students;
 const serverQuizzesMap = new Map<string, ServerQuizItem>();
 db.quizzes.forEach((q) => {
-  if (q && q.id) serverQuizzesMap.set(q.id, q);
+  if (q && q.id && q.id !== 'quiz-meb-4-default') {
+    serverQuizzesMap.set(q.id, q);
+  }
 });
-if (serverActiveQuiz && !serverQuizzesMap.has(serverActiveQuiz.id)) {
+if (serverActiveQuiz && serverActiveQuiz.id !== 'quiz-meb-4-default') {
   serverQuizzesMap.set(serverActiveQuiz.id, serverActiveQuiz);
 }
 
 const serverResultsMap = new Map<string, any>(); // key: `${quizId}_${studentId}`
 db.results.forEach((r) => {
-  if (r && r.quizId && r.studentId) {
+  if (r && r.quizId && r.studentId && r.quizId !== 'quiz-meb-4-default' && r.id !== 'res-test-1') {
     serverResultsMap.set(`${r.quizId}_${r.studentId}`, r);
   }
 });
@@ -149,6 +159,90 @@ function persistDb() {
     studentNotes: serverStudentNotes,
   });
 }
+
+// ==========================================
+// 0. POST /api/rehydrate : Render deploy sonrası veya sıfırlanmada tarayıcıdan sunucuyu kurtarır
+// ==========================================
+app.post("/api/rehydrate", (req, res) => {
+  const { activeQuiz, archiveQuizzes, students, results, studentNotes } = req.body;
+
+  let addedQuizzes = 0;
+  let addedResults = 0;
+
+  // 1. Quizzes merge by ID (sahte quizleri filtrele)
+  if (Array.isArray(archiveQuizzes)) {
+    archiveQuizzes.forEach((q: any) => {
+      if (q && q.id && q.id !== 'quiz-meb-4-default') {
+        if (!serverQuizzesMap.has(q.id)) {
+          addedQuizzes++;
+        }
+        serverQuizzesMap.set(q.id, q);
+      }
+    });
+  }
+
+  // 2. Active Quiz restoration
+  if (activeQuiz && activeQuiz.id && activeQuiz.id !== 'quiz-meb-4-default') {
+    serverQuizzesMap.set(activeQuiz.id, activeQuiz);
+    if (!serverActiveQuiz) {
+      serverActiveQuiz = activeQuiz;
+    }
+  }
+
+  // 3. Results merge by ${quizId}_${studentId}
+  if (Array.isArray(results)) {
+    results.forEach((r: any) => {
+      if (r && r.quizId && r.studentId && r.quizId !== 'quiz-meb-4-default' && r.id !== 'res-test-1') {
+        const key = `${r.quizId}_${r.studentId}`;
+        if (!serverResultsMap.has(key)) {
+          addedResults++;
+        }
+        serverResultsMap.set(key, r);
+      }
+    });
+  }
+
+  // 4. Student Notes merge
+  if (studentNotes && typeof studentNotes === 'object') {
+    Object.entries(studentNotes).forEach(([sId, noteObj]: [string, any]) => {
+      if (noteObj && noteObj.note) {
+        serverStudentNotes[sId] = noteObj;
+      }
+    });
+  }
+
+  // 5. Students list preserve
+  if (Array.isArray(students) && students.length > 0) {
+    serverStudents = students;
+  }
+
+  persistDb();
+
+  console.log(`[Sunucu /api/rehydrate] Akıllı hafıza kurtarma tamamlandı. ${addedQuizzes} yeni sınav, ${addedResults} yeni karne kurtarıldı/birleştirildi.`);
+
+  res.json({
+    success: true,
+    message: "Veriler başarıyla sunucuya geri yüklendi ve birleştirildi.",
+    activeQuiz: serverActiveQuiz,
+    archiveQuizzesCount: serverQuizzesMap.size,
+    resultsCount: serverResultsMap.size,
+  });
+});
+
+// POST /api/reset-data : Sistemi tamamen sıfırlar (sıfır km)
+app.post("/api/reset-data", (req, res) => {
+  serverActiveQuiz = null;
+  serverQuizzesMap.clear();
+  serverResultsMap.clear();
+  serverStudents = DEFAULT_STUDENTS;
+  // Preserve notes or clear
+  persistDb();
+  console.log(`[Sunucu /api/reset-data] Tüm sınav ve sonuç verileri sıfırlandı.`);
+  res.json({
+    success: true,
+    message: "Tüm veriler sıfırlandı, tertemiz başlangıç yapıldı.",
+  });
+});
 
 // ==========================================
 // 1. GET /api/sync : Tek seferde tüm sunucu durumunu döner

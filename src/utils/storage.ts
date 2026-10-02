@@ -1,6 +1,5 @@
 import { Quiz, Student, ExamResult } from '../types';
 import { DEFAULT_STUDENTS } from '../data/defaultStudents';
-import { getFallbackQuestions } from '../data/mebCurriculum';
 
 const STORAGE_KEYS = {
   ACTIVE_QUIZ: 'meb4_active_quiz',
@@ -11,19 +10,9 @@ const STORAGE_KEYS = {
   STUDENT_NOTES: 'meb4_student_notes',
 };
 
-const DEFAULT_QUIZ: Quiz = {
-  id: 'quiz-meb-4-default',
-  title: 'Matematik 4. Sınıf - Doğal Sayılar ve Basamak Değeri Değerlendirme Testi',
-  subjectId: 'matematik',
-  subjectName: 'Matematik',
-  topic: 'Doğal Sayılar ve Basamak Değeri',
-  createdAt: new Date().toISOString(),
-  questions: getFallbackQuestions('Matematik', 'Doğal Sayılar ve Basamak Değeri'),
-};
-
 export const Storage = {
   // ========================================================
-  // 1. SUNUCU SENKRONİZASYONU (TÜM CİHAZLAR İÇİN ORTAK DURUM)
+  // 1. SUNUCU SENKRONİZASYONU & OTOMATİK KURTARMA (AUTO-REHYDRATION)
   // ========================================================
   async syncWithServer(): Promise<{
     activeQuiz: Quiz | null;
@@ -33,46 +22,100 @@ export const Storage = {
     studentNotes: Record<string, { studentId: string; note: string; updatedAt: string }>;
   } | null> {
     try {
+      // 1. Yerel hafızadaki sahte / seed verileri filtrele
+      const localActive = this.getActiveQuiz();
+      const localArchive = this.getQuizzesArchive();
+      const localResults = this.getResults();
+      const localStudents = this.getStudents();
+      const localNotes = this.getStudentNotes();
+
       const res = await fetch('/api/sync');
       if (!res.ok) return null;
       const data = await res.json();
       if (!data.success) return null;
 
-      // 1. Aktif Sınav Eşitleme
-      if (data.activeQuiz) {
-        localStorage.setItem(STORAGE_KEYS.ACTIVE_QUIZ, JSON.stringify(data.activeQuiz));
+      const serverQuizzes: Quiz[] = Array.isArray(data.archiveQuizzes)
+        ? data.archiveQuizzes.filter((q: Quiz) => q && q.id && q.id !== 'quiz-meb-4-default')
+        : [];
+      const serverActive: Quiz | null =
+        data.activeQuiz && data.activeQuiz.id !== 'quiz-meb-4-default' ? data.activeQuiz : null;
+      const serverResults: ExamResult[] = Array.isArray(data.results)
+        ? data.results.filter((r: ExamResult) => r && r.quizId !== 'quiz-meb-4-default' && r.id !== 'res-test-1')
+        : [];
+
+      // 2. OTOMATİK REHİDRASYON (Render deploy veya disk sıfırlanma kalkanı):
+      // Eğer sunucuda 0 sınav ve 0 aktif sınav varsa, ancak öğretmenin tarayıcısında gerçek sınavlar varsa:
+      if (serverQuizzes.length === 0 && !serverActive && (localArchive.length > 0 || localActive || localResults.length > 0)) {
+        console.log('[Auto-Rehydration] Sunucu diski sıfırlanmış tespit edildi, yerel hafızadaki gerçek veriler sunucuya geri yükleniyor...');
+        try {
+          await fetch('/api/rehydrate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              activeQuiz: localActive,
+              archiveQuizzes: localArchive,
+              results: localResults,
+              students: localStudents,
+              studentNotes: localNotes,
+            }),
+          });
+        } catch (rehydrateErr) {
+          console.warn('[Auto-Rehydration] Sunucuya otomatik kurtarma uyarısı:', rehydrateErr);
+        }
+
+        return {
+          activeQuiz: localActive,
+          archiveQuizzes: localArchive,
+          students: localStudents,
+          results: localResults,
+          studentNotes: localNotes,
+        };
+      }
+
+      // 3. Akıllı Birleştirme (ID Union): Hem sunucu hem tarayıcı verileri birleştirilir, hiçbir sınav veya karne kaybolmaz
+      const quizMap = new Map<string, Quiz>();
+      serverQuizzes.forEach((q) => quizMap.set(q.id, q));
+      localArchive.forEach((q) => {
+        if (!quizMap.has(q.id)) quizMap.set(q.id, q);
+      });
+      const mergedQuizzes = Array.from(quizMap.values()).sort((a, b) => {
+        const timeA = new Date(a.createdAt || 0).getTime();
+        const timeB = new Date(b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+
+      const resultMap = new Map<string, ExamResult>();
+      serverResults.forEach((r) => resultMap.set(`${r.quizId}_${r.studentId}`, r));
+      localResults.forEach((r) => {
+        const key = `${r.quizId}_${r.studentId}`;
+        if (!resultMap.has(key)) resultMap.set(key, r);
+      });
+      const mergedResults = Array.from(resultMap.values());
+
+      const mergedNotes = { ...localNotes, ...(data.studentNotes || {}) };
+      const effectiveActiveQuiz = serverActive || (localActive && quizMap.has(localActive.id) ? localActive : null);
+
+      // LocalStorage Master Backup güncelle
+      if (effectiveActiveQuiz) {
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_QUIZ, JSON.stringify(effectiveActiveQuiz));
       } else {
         localStorage.removeItem(STORAGE_KEYS.ACTIVE_QUIZ);
       }
-
-      // 2. Arşiv Sınavları Eşitleme
-      if (Array.isArray(data.archiveQuizzes)) {
-        localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(data.archiveQuizzes));
-      }
-
-      // 3. 35 Kişilik Sınıf Listesi Eşitleme
+      localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(mergedQuizzes));
+      localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(mergedResults));
       if (Array.isArray(data.students) && data.students.length > 0) {
         localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(data.students));
       }
-
-      // 4. Öğrenci Sınav Sonuçları Eşitleme
-      if (Array.isArray(data.results)) {
-        localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(data.results));
-      }
-
-      // 5. Öğretmen Öğrenci Gözlem Notları Eşitleme
-      if (data.studentNotes && typeof data.studentNotes === 'object') {
-        localStorage.setItem(STORAGE_KEYS.STUDENT_NOTES, JSON.stringify(data.studentNotes));
-      }
+      localStorage.setItem(STORAGE_KEYS.STUDENT_NOTES, JSON.stringify(mergedNotes));
 
       window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: 'all' } }));
 
       return {
-        activeQuiz: data.activeQuiz || null,
-        archiveQuizzes: data.archiveQuizzes || [],
-        students: data.students || DEFAULT_STUDENTS,
-        results: data.results || [],
-        studentNotes: data.studentNotes || {},
+        activeQuiz: effectiveActiveQuiz,
+        archiveQuizzes: mergedQuizzes,
+        students: (Array.isArray(data.students) && data.students.length > 0) ? data.students : DEFAULT_STUDENTS,
+        results: mergedResults,
+        studentNotes: mergedNotes,
       };
     } catch (err) {
       console.warn('Sunucu senkronizasyon uyarısı:', err);
@@ -87,7 +130,7 @@ export const Storage = {
         return null;
       }
       const parsed = JSON.parse(data);
-      if (!parsed || !parsed.id || !Array.isArray(parsed?.questions) || parsed.questions.length === 0) {
+      if (!parsed || !parsed.id || parsed.id === 'quiz-meb-4-default' || !Array.isArray(parsed?.questions) || parsed.questions.length === 0) {
         return null;
       }
       return parsed;
@@ -137,14 +180,6 @@ export const Storage = {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.QUIZZES_ARCHIVE);
       if (!data) {
-        // If first time loaded and never initialized
-        const isSeeded = localStorage.getItem('meb4_seeded');
-        if (!isSeeded) {
-          localStorage.setItem('meb4_seeded', 'true');
-          const initial = [DEFAULT_QUIZ];
-          localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(initial));
-          return initial;
-        }
         return [];
       }
       const parsed = JSON.parse(data);
@@ -152,8 +187,11 @@ export const Storage = {
         return [];
       }
 
+      // Sahte veya mock sınavları tamamen temizle
+      const cleaned = parsed.filter((q) => q && q.id && q.id !== 'quiz-meb-4-default');
+
       // Sort by createdAt descending (newest first)
-      return parsed.sort((a, b) => {
+      return cleaned.sort((a, b) => {
         const timeA = new Date(a.createdAt || 0).getTime();
         const timeB = new Date(b.createdAt || 0).getTime();
         return timeB - timeA;
@@ -165,6 +203,7 @@ export const Storage = {
 
   saveQuizToArchive(quiz: Quiz, emitEvent: boolean = true): void {
     try {
+      if (!quiz || !quiz.id || quiz.id === 'quiz-meb-4-default') return;
       const archive = this.getQuizzesArchive();
       const existingIndex = archive.findIndex((q) => q.id === quiz.id);
       if (existingIndex >= 0) {
@@ -189,7 +228,7 @@ export const Storage = {
   },
 
   getQuizById(quizId: string): Quiz | null {
-    if (!quizId) return null;
+    if (!quizId || quizId === 'quiz-meb-4-default') return null;
     const all = this.getAllQuizzes();
     return all.find((q) => q.id === quizId) || null;
   },
@@ -201,7 +240,7 @@ export const Storage = {
       if (!res.ok) return null;
       const data = await res.json();
       if (data.success) {
-        if (!data.quiz) {
+        if (!data.quiz || data.quiz.id === 'quiz-meb-4-default') {
           localStorage.removeItem(STORAGE_KEYS.ACTIVE_QUIZ);
           window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.ACTIVE_QUIZ } }));
           return null;
@@ -221,7 +260,7 @@ export const Storage = {
 
   // Fetch quiz by specific ID from server (for student ?quizId= links)
   async fetchServerQuizById(quizId: string): Promise<Quiz | null> {
-    if (!quizId) return null;
+    if (!quizId || quizId === 'quiz-meb-4-default') return null;
     try {
       const res = await fetch(`/api/quizzes/${encodeURIComponent(quizId)}`);
       if (!res.ok) return null;
@@ -245,8 +284,16 @@ export const Storage = {
       if (data.success && Array.isArray(data.results)) {
         const local = this.getResults();
         const map = new Map<string, ExamResult>();
-        local.forEach((r) => map.set(`${r.quizId}_${r.studentId}`, r));
-        data.results.forEach((r: ExamResult) => map.set(`${r.quizId}_${r.studentId}`, r));
+        local.forEach((r) => {
+          if (r.quizId !== 'quiz-meb-4-default' && r.id !== 'res-test-1') {
+            map.set(`${r.quizId}_${r.studentId}`, r);
+          }
+        });
+        data.results.forEach((r: ExamResult) => {
+          if (r.quizId !== 'quiz-meb-4-default' && r.id !== 'res-test-1') {
+            map.set(`${r.quizId}_${r.studentId}`, r);
+          }
+        });
         const merged = Array.from(map.values());
         localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(merged));
         window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.RESULTS } }));
@@ -262,8 +309,10 @@ export const Storage = {
     const archive = this.getQuizzesArchive();
     const active = this.getActiveQuiz();
     const map = new Map<string, Quiz>();
-    if (active) map.set(active.id, active);
-    archive.forEach((q) => map.set(q.id, q));
+    if (active && active.id !== 'quiz-meb-4-default') map.set(active.id, active);
+    archive.forEach((q) => {
+      if (q && q.id && q.id !== 'quiz-meb-4-default') map.set(q.id, q);
+    });
     return Array.from(map.values()).sort((a, b) => {
       const timeA = new Date(a.createdAt || 0).getTime();
       const timeB = new Date(b.createdAt || 0).getTime();
@@ -331,10 +380,11 @@ export const Storage = {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.RESULTS);
       const all: ExamResult[] = data ? JSON.parse(data) : [];
+      const cleaned = all.filter((r) => r && r.quizId !== 'quiz-meb-4-default' && r.id !== 'res-test-1');
       if (quizId) {
-        return all.filter((r) => r.quizId === quizId);
+        return cleaned.filter((r) => r.quizId === quizId);
       }
-      return all;
+      return cleaned;
     } catch {
       return [];
     }
@@ -342,8 +392,8 @@ export const Storage = {
 
   saveResult(result: ExamResult): void {
     try {
+      if (!result || result.quizId === 'quiz-meb-4-default' || result.id === 'res-test-1') return;
       const all = this.getResults();
-      // If student already submitted this quiz, replace or ignore
       const existingIndex = all.findIndex((r) => r.quizId === result.quizId && r.studentId === result.studentId);
       if (existingIndex >= 0) {
         all[existingIndex] = result;
@@ -424,6 +474,93 @@ export const Storage = {
     }
   },
 
+  // ========================================================
+  // 3. JSON YEDEKLEME VE GERİ YÜKLEME (OFFLINE MASTER BACKUP)
+  // ========================================================
+  exportBackupJson(): string {
+    const backupData = {
+      app: 'MEB 4. Sınıf Test ve Sınav Portalı',
+      school: 'Tokat Erbaa Atatürk İlkokulu',
+      gradeClass: '4-D',
+      exportDate: new Date().toISOString(),
+      activeQuiz: this.getActiveQuiz(),
+      archiveQuizzes: this.getQuizzesArchive(),
+      results: this.getResults(),
+      students: this.getStudents(),
+      studentNotes: this.getStudentNotes(),
+    };
+    return JSON.stringify(backupData, null, 2);
+  },
+
+  async importBackupJson(jsonString: string): Promise<{
+    success: boolean;
+    quizCount: number;
+    resultCount: number;
+    error?: string;
+  }> {
+    try {
+      const parsed = JSON.parse(jsonString);
+      if (!parsed || typeof parsed !== 'object') {
+        return { success: false, quizCount: 0, resultCount: 0, error: 'Geçersiz yedek dosyası formatı.' };
+      }
+
+      const rawQuizzes: Quiz[] = Array.isArray(parsed.archiveQuizzes)
+        ? parsed.archiveQuizzes
+        : Array.isArray(parsed.quizzes)
+        ? parsed.quizzes
+        : [];
+
+      const rawResults: ExamResult[] = Array.isArray(parsed.results) ? parsed.results : [];
+      const rawStudents: Student[] = Array.isArray(parsed.students) && parsed.students.length > 0 ? parsed.students : DEFAULT_STUDENTS;
+      const rawNotes = parsed.studentNotes && typeof parsed.studentNotes === 'object' ? parsed.studentNotes : {};
+      const rawActiveQuiz = parsed.activeQuiz && parsed.activeQuiz.id ? parsed.activeQuiz : null;
+
+      // Sahte verileri filtrele
+      const cleanedQuizzes = rawQuizzes.filter((q) => q && q.id && q.id !== 'quiz-meb-4-default');
+      const cleanedResults = rawResults.filter((r) => r && r.quizId !== 'quiz-meb-4-default' && r.id !== 'res-test-1');
+      const cleanedActive = rawActiveQuiz && rawActiveQuiz.id !== 'quiz-meb-4-default' ? rawActiveQuiz : null;
+
+      // 1. Tarayıcıya kaydet
+      if (cleanedActive) {
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_QUIZ, JSON.stringify(cleanedActive));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.ACTIVE_QUIZ);
+      }
+      localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(cleanedQuizzes));
+      localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(cleanedResults));
+      localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(rawStudents));
+      localStorage.setItem(STORAGE_KEYS.STUDENT_NOTES, JSON.stringify(rawNotes));
+
+      window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: 'all' } }));
+
+      // 2. Sunucuya rehydrate ile anında bas
+      await fetch('/api/rehydrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activeQuiz: cleanedActive,
+          archiveQuizzes: cleanedQuizzes,
+          results: cleanedResults,
+          students: rawStudents,
+          studentNotes: rawNotes,
+        }),
+      });
+
+      return {
+        success: true,
+        quizCount: cleanedQuizzes.length,
+        resultCount: cleanedResults.length,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        quizCount: 0,
+        resultCount: 0,
+        error: err?.message || 'Yedek dosyası işlenirken hata oluştu.',
+      };
+    }
+  },
+
   isTeacherLoggedIn(): boolean {
     return sessionStorage.getItem(STORAGE_KEYS.TEACHER_LOGGED_IN) === 'true';
   },
@@ -447,8 +584,11 @@ export const Storage = {
     localStorage.removeItem(STORAGE_KEYS.STUDENTS);
     localStorage.removeItem(STORAGE_KEYS.RESULTS);
     localStorage.removeItem(STORAGE_KEYS.STUDENT_NOTES);
-    this.setActiveQuiz(DEFAULT_QUIZ);
+    localStorage.removeItem('meb4_seeded');
     this.setStudents(DEFAULT_STUDENTS);
     window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: 'all' } }));
+
+    // Reset server data
+    fetch('/api/reset-data', { method: 'POST' }).catch(() => {});
   },
 };
