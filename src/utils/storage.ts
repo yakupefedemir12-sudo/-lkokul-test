@@ -8,6 +8,7 @@ const STORAGE_KEYS = {
   RESULTS: 'meb4_results',
   TEACHER_LOGGED_IN: 'meb4_teacher_auth',
   QUIZZES_ARCHIVE: 'meb4_quizzes_archive',
+  STUDENT_NOTES: 'meb4_student_notes',
 };
 
 const DEFAULT_QUIZ: Quiz = {
@@ -21,6 +22,64 @@ const DEFAULT_QUIZ: Quiz = {
 };
 
 export const Storage = {
+  // ========================================================
+  // 1. SUNUCU SENKRONİZASYONU (TÜM CİHAZLAR İÇİN ORTAK DURUM)
+  // ========================================================
+  async syncWithServer(): Promise<{
+    activeQuiz: Quiz | null;
+    archiveQuizzes: Quiz[];
+    students: Student[];
+    results: ExamResult[];
+    studentNotes: Record<string, { studentId: string; note: string; updatedAt: string }>;
+  } | null> {
+    try {
+      const res = await fetch('/api/sync');
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.success) return null;
+
+      // 1. Aktif Sınav Eşitleme
+      if (data.activeQuiz) {
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_QUIZ, JSON.stringify(data.activeQuiz));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.ACTIVE_QUIZ);
+      }
+
+      // 2. Arşiv Sınavları Eşitleme
+      if (Array.isArray(data.archiveQuizzes)) {
+        localStorage.setItem(STORAGE_KEYS.QUIZZES_ARCHIVE, JSON.stringify(data.archiveQuizzes));
+      }
+
+      // 3. 35 Kişilik Sınıf Listesi Eşitleme
+      if (Array.isArray(data.students) && data.students.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(data.students));
+      }
+
+      // 4. Öğrenci Sınav Sonuçları Eşitleme
+      if (Array.isArray(data.results)) {
+        localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(data.results));
+      }
+
+      // 5. Öğretmen Öğrenci Gözlem Notları Eşitleme
+      if (data.studentNotes && typeof data.studentNotes === 'object') {
+        localStorage.setItem(STORAGE_KEYS.STUDENT_NOTES, JSON.stringify(data.studentNotes));
+      }
+
+      window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: 'all' } }));
+
+      return {
+        activeQuiz: data.activeQuiz || null,
+        archiveQuizzes: data.archiveQuizzes || [],
+        students: data.students || DEFAULT_STUDENTS,
+        results: data.results || [],
+        studentNotes: data.studentNotes || {},
+      };
+    } catch (err) {
+      console.warn('Sunucu senkronizasyon uyarısı:', err);
+      return null;
+    }
+  },
+
   getActiveQuiz(): Quiz | null {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.ACTIVE_QUIZ);
@@ -48,7 +107,7 @@ export const Storage = {
       this.saveQuizToArchive(quiz, false);
       window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.ACTIVE_QUIZ } }));
 
-      // Synchronize active quiz with server so other devices/students immediately see it
+      // Synchronize active quiz with server so all devices (mobile, student, tablet) immediately update
       fetch('/api/active-quiz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -256,6 +315,13 @@ export const Storage = {
     try {
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
       window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.STUDENTS } }));
+
+      // Sync with server
+      fetch('/api/update-students', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ students }),
+      }).catch((err) => console.warn('Sunucu öğrenci eşitleme hatası:', err));
     } catch (e) {
       console.error('Failed to save students:', e);
     }
@@ -287,15 +353,20 @@ export const Storage = {
       localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(all));
       window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.RESULTS } }));
 
-      // Synchronize result with server
-      fetch('/api/results', {
+      // Synchronize result with server (both submit-exam and results endpoints for reliability)
+      fetch('/api/submit-exam', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ result }),
-      }).catch((err) => console.warn('Sunucu sonuç eşitleme hatası:', err));
+      }).catch((err) => console.warn('Sunucu /submit-exam eşitleme hatası:', err));
     } catch (e) {
       console.error('Failed to save exam result:', e);
     }
+  },
+
+  // Alias for saveResult
+  submitExam(result: ExamResult): void {
+    this.saveResult(result);
   },
 
   clearQuizResults(quizId: string): void {
@@ -311,6 +382,45 @@ export const Storage = {
       }).catch((err) => console.warn('Sunucu sonuç silme hatası:', err));
     } catch (e) {
       console.error('Failed to clear quiz results:', e);
+    }
+  },
+
+  // ========================================================
+  // ÖĞRETMEN ÖĞRENCİ GÖZLEM NOTLARI
+  // ========================================================
+  getStudentNotes(): Record<string, { studentId: string; note: string; updatedAt: string }> {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.STUDENT_NOTES);
+      return data ? JSON.parse(data) : {};
+    } catch {
+      return {};
+    }
+  },
+
+  getStudentNote(studentId: string): string {
+    const notes = this.getStudentNotes();
+    return notes[studentId]?.note || '';
+  },
+
+  async saveStudentNote(studentId: string, note: string): Promise<void> {
+    try {
+      const notes = this.getStudentNotes();
+      notes[studentId] = {
+        studentId,
+        note: note.trim(),
+        updatedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(STORAGE_KEYS.STUDENT_NOTES, JSON.stringify(notes));
+      window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: STORAGE_KEYS.STUDENT_NOTES } }));
+
+      // Sync with server
+      await fetch('/api/student-note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId, note }),
+      });
+    } catch (e) {
+      console.error('Failed to save student note:', e);
     }
   },
 
@@ -336,6 +446,7 @@ export const Storage = {
     localStorage.removeItem(STORAGE_KEYS.QUIZZES_ARCHIVE);
     localStorage.removeItem(STORAGE_KEYS.STUDENTS);
     localStorage.removeItem(STORAGE_KEYS.RESULTS);
+    localStorage.removeItem(STORAGE_KEYS.STUDENT_NOTES);
     this.setActiveQuiz(DEFAULT_QUIZ);
     this.setStudents(DEFAULT_STUDENTS);
     window.dispatchEvent(new CustomEvent('meb-storage-updated', { detail: { key: 'all' } }));

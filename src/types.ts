@@ -1,4 +1,4 @@
-export type SubjectId = 'matematik' | 'turkce' | 'fen_bilimleri' | 'sosyal_bilgiler';
+export type SubjectId = 'matematik' | 'turkce' | 'fen_bilimleri' | 'sosyal_bilgiler' | 'insan_haklari' | 'trafik_guvenligi';
 
 export interface SubjectInfo {
   id: SubjectId;
@@ -8,6 +8,12 @@ export interface SubjectInfo {
   badgeBg: string;
   badgeText: string;
   topics: string[];
+}
+
+export interface StudentNote {
+  studentId: string;
+  note: string;
+  updatedAt: string;
 }
 
 export interface QuestionOption {

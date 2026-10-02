@@ -51,20 +51,17 @@ export default function App() {
 
     const syncWithServer = async () => {
       try {
+        // Full Server Sync (Active quiz, Archive, 35 students list, Results, Notes)
+        await Storage.syncWithServer();
+
         if (qId) {
           // If a specific quiz is requested by student/parent link, fetch it
           const serverQ = await Storage.fetchServerQuizById(qId);
           if (serverQ) {
             setSpecificQuiz(serverQ);
           }
-        } else {
-          // If no specific quizId in URL, fetch the latest active quiz from server
-          const serverActive = await Storage.fetchServerActiveQuiz();
-          setActiveQuiz(serverActive);
         }
 
-        // Also sync results across devices
-        await Storage.fetchServerResults();
         refreshData();
       } catch (err) {
         console.warn('Server sync error on mount:', err);
@@ -72,6 +69,25 @@ export default function App() {
     };
 
     syncWithServer();
+
+    // Periodic sync every 20 seconds to keep all devices up-to-date
+    const interval = setInterval(() => {
+      Storage.syncWithServer().then(() => {
+        refreshData();
+      }).catch(() => {});
+    }, 20000);
+
+    const onFocus = () => {
+      Storage.syncWithServer().then(() => {
+        refreshData();
+      }).catch(() => {});
+    };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [refreshData]);
 
   // Set mode and update URL without reload

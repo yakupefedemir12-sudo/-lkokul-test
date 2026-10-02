@@ -42,6 +42,9 @@ import {
   BarChart3,
   TrendingDown,
   Target,
+  UserCheck,
+  MessageSquare,
+  ExternalLink,
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
@@ -66,8 +69,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
 
-  // Tabs: 'results' | 'archive' | 'create_quiz' | 'students'
-  const [activeTab, setActiveTab] = useState<'results' | 'archive' | 'create_quiz' | 'students'>('results');
+  // Tabs: 'results' | 'archive' | 'create_quiz' | 'students' | 'student_analytics'
+  const [activeTab, setActiveTab] = useState<'results' | 'archive' | 'create_quiz' | 'students' | 'student_analytics'>('results');
+
+  // Student Portfolio & Analytics State
+  const [selectedAnalyticsStudentId, setSelectedAnalyticsStudentId] = useState<string>(() => students[0]?.id || '');
+  const [studentNotesMap, setStudentNotesMap] = useState<Record<string, { studentId: string; note: string; updatedAt: string }>>(() => Storage.getStudentNotes());
+  const [editingNoteText, setEditingNoteText] = useState<string>('');
+  const [noteSavedToast, setNoteSavedToast] = useState<boolean>(false);
+  const [isSavingNote, setIsSavingNote] = useState<boolean>(false);
+  const [expandedStudentExamIds, setExpandedStudentExamIds] = useState<Record<string, boolean>>({});
+  const [whatsAppReportCopied, setWhatsAppReportCopied] = useState<boolean>(false);
 
   // Archive & Selected Quiz State
   const [selectedQuizId, setSelectedQuizId] = useState<string>(activeQuiz?.id || '');
@@ -252,6 +264,189 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   const selectedSubject = MEB_CURRICULUM.find((s) => s.id === selectedSubjectId) || MEB_CURRICULUM[0];
 
+  // Currently selected student in Analytics & Portfolio tab
+  const currentAnalyticsStudent = useMemo(() => {
+    return students.find((s) => s.id === selectedAnalyticsStudentId) || students[0] || null;
+  }, [students, selectedAnalyticsStudentId]);
+
+  // Sync editingNoteText when student changes
+  React.useEffect(() => {
+    if (currentAnalyticsStudent) {
+      const savedNote = studentNotesMap[currentAnalyticsStudent.id]?.note || Storage.getStudentNote(currentAnalyticsStudent.id) || '';
+      setEditingNoteText(savedNote);
+    }
+  }, [currentAnalyticsStudent?.id, studentNotesMap]);
+
+  // Results belonging specifically to this student
+  const currentStudentResults = useMemo(() => {
+    if (!currentAnalyticsStudent) return [];
+    return results
+      .filter((r) => r.studentId === currentAnalyticsStudent.id)
+      .sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime());
+  }, [results, currentAnalyticsStudent?.id]);
+
+  // Overall performance calculations
+  const studentTotalExams = currentStudentResults.length;
+  const studentAverageScore = studentTotalExams > 0
+    ? Math.round(currentStudentResults.reduce((acc, r) => acc + r.score, 0) / studentTotalExams)
+    : 0;
+  const studentTotalCorrect = currentStudentResults.reduce((acc, r) => acc + r.correctCount, 0);
+  const studentTotalWrong = currentStudentResults.reduce((acc, r) => acc + r.wrongCount, 0);
+  const studentTotalEmpty = currentStudentResults.reduce((acc, r) => acc + r.emptyCount, 0);
+  const studentTotalQuestions = studentTotalCorrect + studentTotalWrong + studentTotalEmpty;
+
+  // Subject-by-subject performance for student
+  const studentSubjectBreakdown = useMemo(() => {
+    return MEB_CURRICULUM.map((sub) => {
+      const subResults = currentStudentResults.filter((r) => {
+        const subName = (r.subjectName || '').toLowerCase();
+        const curName = sub.name.toLowerCase();
+        return subName.includes(curName) || curName.includes(subName) || r.quizId.includes(sub.id);
+      });
+
+      const count = subResults.length;
+      const correct = subResults.reduce((acc, r) => acc + r.correctCount, 0);
+      const wrong = subResults.reduce((acc, r) => acc + r.wrongCount, 0);
+      const empty = subResults.reduce((acc, r) => acc + r.emptyCount, 0);
+      const totalQ = correct + wrong + empty;
+      const avg = count > 0 ? Math.round(subResults.reduce((acc, r) => acc + r.score, 0) / count) : 0;
+      const successPct = totalQ > 0 ? Math.round((correct / totalQ) * 100) : null;
+
+      return {
+        subject: sub,
+        count,
+        correct,
+        wrong,
+        empty,
+        totalQ,
+        avg,
+        successPct,
+      };
+    });
+  }, [currentStudentResults]);
+
+  // Topic deficiencies analysis
+  const studentDeficiencies = useMemo(() => {
+    if (currentStudentResults.length === 0) return [];
+
+    const map = new Map<string, {
+      subjectName: string;
+      topic: string;
+      wrongCount: number;
+      emptyCount: number;
+      wrongQuestions: { questionText: string; studentAnswer: string; correctAnswer: string; explanation?: string }[];
+    }>();
+
+    currentStudentResults.forEach((res) => {
+      const quiz = allQuizzes.find((q) => q.id === res.quizId);
+      const key = `${res.subjectName} — ${res.topic}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          subjectName: res.subjectName,
+          topic: res.topic,
+          wrongCount: 0,
+          emptyCount: 0,
+          wrongQuestions: [],
+        });
+      }
+
+      const item = map.get(key)!;
+
+      if (Array.isArray(res.answers)) {
+        res.answers.forEach((ans) => {
+          if (!ans.isCorrect) {
+            if (ans.selectedOption === null) {
+              item.emptyCount++;
+            } else {
+              item.wrongCount++;
+            }
+            const qObj = quiz?.questions?.find((q) => q.id === ans.questionId) || quiz?.questions?.[ans.questionId - 1];
+            if (qObj) {
+              item.wrongQuestions.push({
+                questionText: qObj.question,
+                studentAnswer: ans.selectedOption || 'Boş Bırakıldı',
+                correctAnswer: qObj.correctAnswer,
+                explanation: qObj.explanation,
+              });
+            }
+          }
+        });
+      }
+    });
+
+    return Array.from(map.values())
+      .filter((d) => d.wrongCount > 0 || d.emptyCount > 0)
+      .sort((a, b) => (b.wrongCount * 2 + b.emptyCount) - (a.wrongCount * 2 + a.emptyCount));
+  }, [currentStudentResults, allQuizzes]);
+
+  // Toggle student exam accordion
+  const toggleStudentExam = (resultId: string) => {
+    setExpandedStudentExamIds((prev) => ({
+      ...prev,
+      [resultId]: !prev[resultId],
+    }));
+  };
+
+  // Save Observation Note to Server & LocalStorage
+  const handleSaveStudentNote = async () => {
+    if (!currentAnalyticsStudent) return;
+    setIsSavingNote(true);
+    await Storage.saveStudentNote(currentAnalyticsStudent.id, editingNoteText);
+    setStudentNotesMap(Storage.getStudentNotes());
+    setIsSavingNote(false);
+    setNoteSavedToast(true);
+    setTimeout(() => setNoteSavedToast(false), 3000);
+  };
+
+  // Send / Copy WhatsApp Report
+  const handleSendWhatsAppReport = () => {
+    if (!currentAnalyticsStudent) return;
+    const student = currentAnalyticsStudent;
+
+    const subjectLines: string[] = [];
+    studentSubjectBreakdown.forEach((s) => {
+      if (s.count > 0) {
+        subjectLines.push(`• *${s.subject.name}:* %${s.avg} (${s.count} Sınav, ${s.correct} Doğru / ${s.wrong} Yanlış)`);
+      }
+    });
+
+    const deficiencyLines: string[] = [];
+    studentDeficiencies.slice(0, 5).forEach((d) => {
+      deficiencyLines.push(`• *${d.subjectName} - ${d.topic}:* ${d.wrongCount} Yanlış (${d.wrongCount >= 2 ? '⚠️ Kritik Eksiklik / Acil Pekiştirilmeli' : '📌 Pekiştirilmeli'})`);
+    });
+
+    const note = editingNoteText || studentNotesMap[student.id]?.note || '';
+
+    const text = `🏫 *Tokat Erbaa Atatürk İlkokulu 4-D Sınıfı*
+👨‍🏫 *Sınıf Öğretmeni Bireysel Gelişim ve Kazanım Raporu*
+
+👤 *Öğrenci:* ${student.name} (Okul No: ${student.no})
+📅 *Rapor Tarihi:* ${new Date().toLocaleDateString('tr-TR')}
+
+📊 *GENEL PERFORMANS:*
+• Katılınan Sınav: ${studentTotalExams} Sınav
+• Genel Başarı Ortalaması: %${studentAverageScore}
+• Toplam Doğru: ${studentTotalCorrect} | Yanlış: ${studentTotalWrong} | Boş: ${studentTotalEmpty}
+
+📚 *DERS BAZLI BAŞARI ORANLARI:*
+${subjectLines.length > 0 ? subjectLines.join('\n') : '• Henüz sınav verisi bulunmuyor.'}
+
+🚨 *EVDE PEKİŞTİRİLMESİ GEREKEN KAZANIMLAR (ÖNEMLİ):*
+${deficiencyLines.length > 0 ? deficiencyLines.join('\n') : '• 🌟 Tebrikler! Kayıtlı sınavlarda tespit edilen kritik konu eksiği bulunmamaktadır.'}
+
+📝 *ÖĞRETMEN ÖZEL GÖZLEM NOTU:*
+"${note || 'Öğrencimizin ders içi dikkati ve öğrenme gayreti düzenli olarak takip edilmektedir.'}"
+
+_Değerli velimiz, evde yukarıdaki konu ve kazanımların tekrar edilmesi öğrencimizin başarısını artıracaktır. İlginiz ve desteğiniz için teşekkür ederim._`;
+
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+    navigator.clipboard?.writeText(text);
+    setWhatsAppReportCopied(true);
+    setTimeout(() => setWhatsAppReportCopied(false), 3500);
+  };
+
   // Helper to format date
   const formatQuizDate = (isoString?: string) => {
     if (!isoString) return 'Tarih belirtilmedi';
@@ -269,10 +464,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     }
   };
 
-  // Helper to generate full student exam URL with specific quizId
+  // Helper to generate full student exam URL with specific quizId (Render format)
   const getStudentExamUrl = (quizId?: string) => {
     const targetId = quizId || currentViewQuiz?.id || activeQuiz?.id || '';
-    return `${window.location.origin}/?mode=student&quizId=${encodeURIComponent(targetId)}`;
+    return `https://lkokul-test.onrender.com/?mode=student&quizId=${encodeURIComponent(targetId)}`;
   };
 
   // Helper to copy the parent group message for any quiz or the current viewed quiz
@@ -1166,6 +1361,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               <Users className="w-3.5 h-3.5 text-sky-500" />
               <span>Sınıf Listesi ({students.length})</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('student_analytics')}
+              id="tab-student-analytics-btn"
+              className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                activeTab === 'student_analytics' ? 'bg-indigo-600 text-white shadow-xs font-black' : 'text-indigo-700 hover:text-indigo-900 hover:bg-indigo-50/60'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
+              <span>👤 Öğrenci Gelişim Analizi</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1750,14 +1956,28 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                               </span>
                             </td>
                             <td className="py-3 px-4 text-right">
-                              <button
-                                onClick={() => setSelectedStudentDetail(res)}
-                                id={`detail-btn-${res.id}`}
-                                className="text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
-                              >
-                                <Eye className="w-3 h-3" />
-                                <span>Detay</span>
-                              </button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => setSelectedStudentDetail(res)}
+                                  id={`detail-btn-${res.id}`}
+                                  className="text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  <span>Detay</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedAnalyticsStudentId(res.studentId);
+                                    setActiveTab('student_analytics');
+                                  }}
+                                  id={`analytics-btn-${res.id}`}
+                                  className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
+                                  title="Öğrencinin tüm derslerdeki gelişim analizini aç"
+                                >
+                                  <UserCheck className="w-3 h-3" />
+                                  <span>Karne</span>
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1893,7 +2113,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-4 sm:p-5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             {/* Subject Filters */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
-              {(['all', 'matematik', 'fen_bilimleri', 'turkce', 'sosyal_bilgiler'] as const).map((filter) => {
+              {(['all', 'matematik', 'fen_bilimleri', 'turkce', 'sosyal_bilgiler', 'insan_haklari', 'trafik_guvenligi'] as const).map((filter) => {
                 const label =
                   filter === 'all'
                     ? 'Tüm Dersler'
@@ -1903,7 +2123,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     ? 'Fen Bilimleri'
                     : filter === 'turkce'
                     ? 'Türkçe'
-                    : 'Sosyal Bilgiler';
+                    : filter === 'sosyal_bilgiler'
+                    ? 'Sosyal Bilgiler'
+                    : filter === 'insan_haklari'
+                    ? 'İnsan Hakları'
+                    : 'Trafik Güvenliği';
 
                 const count =
                   filter === 'all'
@@ -2907,6 +3131,17 @@ ${activeQuiz.subjectName || 'Ders'} dersi '${activeQuiz.topic || 'Konu'}' pekiş
                   </div>
 
                   <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => {
+                        setSelectedAnalyticsStudentId(std.id);
+                        setActiveTab('student_analytics');
+                      }}
+                      className="text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                      title="Öğrencinin detaylı gelişim karnesini ve konu eksikliklerini aç"
+                    >
+                      <UserCheck className="w-3 h-3" />
+                      <span>Karne</span>
+                    </button>
                     {editingStudentId === std.id ? (
                       <button
                         onClick={() => handleUpdateStudent(std.id)}
@@ -2935,6 +3170,551 @@ ${activeQuiz.subjectName || 'Ders'} dersi '${activeQuiz.topic || 'Konu'}' pekiş
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: BİREYSEL ÖĞRENCİ GELİŞİM VE EKSİK ANALİZİ (PORTFOLYO) */}
+      {activeTab === 'student_analytics' && (
+        <div className="space-y-6">
+          {/* Header & Student Selector Bar */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-6 sm:p-8">
+            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-indigo-600/25">
+                  <UserCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full mb-1">
+                    <span>Tokat Erbaa Atatürk İlkokulu 4-D Sınıfı</span>
+                  </div>
+                  <h3 className="text-xl sm:text-2xl font-black text-slate-800 font-['Plus_Jakarta_Sans',sans-serif]">
+                    Bireysel Öğrenci Gelişim ve Eksik Analizi
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Öğrencinin tüm derslerdeki başarı durumu, geçmiş sınavlarda takıldığı konu kazanımları ve veli WhatsApp gelişim raporu.
+                  </p>
+                </div>
+              </div>
+
+              {/* Student Quick Selector Dropdown & Nav Arrows */}
+              <div className="w-full lg:w-auto flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                <button
+                  onClick={() => {
+                    const currentIndex = students.findIndex((s) => s.id === currentAnalyticsStudent?.id);
+                    const prevIndex = (currentIndex - 1 + students.length) % students.length;
+                    setSelectedAnalyticsStudentId(students[prevIndex].id);
+                  }}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black p-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  title="Önceki Öğrenci"
+                >
+                  <ChevronDown className="w-4 h-4 rotate-90" />
+                </button>
+
+                <div className="relative flex-1 sm:w-72">
+                  <select
+                    value={selectedAnalyticsStudentId}
+                    onChange={(e) => setSelectedAnalyticsStudentId(e.target.value)}
+                    className="w-full bg-slate-50 border-2 border-indigo-200 focus:border-indigo-600 rounded-xl py-2 px-3 text-xs font-black text-slate-800 focus:outline-none cursor-pointer"
+                  >
+                    {students.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        No: {s.no} — {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  onClick={() => {
+                    const currentIndex = students.findIndex((s) => s.id === currentAnalyticsStudent?.id);
+                    const nextIndex = (currentIndex + 1) % students.length;
+                    setSelectedAnalyticsStudentId(students[nextIndex].id);
+                  }}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black p-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  title="Sonraki Öğrenci"
+                >
+                  <ChevronDown className="w-4 h-4 -rotate-90" />
+                </button>
+
+                <button
+                  onClick={handleSendWhatsAppReport}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                  title="Veliye özel detaylı karne ve eksik konu raporunu WhatsApp ile ilet"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Veliye WhatsApp Raporu</span>
+                </button>
+              </div>
+            </div>
+
+            {whatsAppReportCopied && (
+              <div className="mt-4 p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-900 flex items-center gap-2 animate-in fade-in duration-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>WhatsApp mesajı hazırlandı ve panoya kopyalandı! Tarayıcınızda WhatsApp açılmadıysa veli sohbetine doğrudan yapıştırabilirsiniz (Ctrl+V).</span>
+              </div>
+            )}
+
+            {/* Student Info Hero & KPIs */}
+            {currentAnalyticsStudent && (
+              <div className="pt-6 space-y-6">
+                {/* Profile Card & KPI Badges */}
+                <div className="bg-linear-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-md">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl bg-indigo-500/30 border-2 border-indigo-400/40 text-amber-300 flex items-center justify-center font-black text-2xl shrink-0 shadow-inner">
+                      {currentAnalyticsStudent.name.charAt(0)}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-xl sm:text-2xl font-black text-white">
+                          {currentAnalyticsStudent.name}
+                        </h4>
+                        <span className="bg-amber-400 text-slate-950 text-xs font-black px-2.5 py-0.5 rounded-full">
+                          Okul No: {currentAnalyticsStudent.no}
+                        </span>
+                      </div>
+                      <p className="text-xs text-indigo-200 mt-1 font-medium">
+                        Tokat Erbaa Atatürk İlkokulu • 4-D Sınıfı • Öğrenci Gelişim Portfolyosu
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* 4 Summary Stat Pills */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full md:w-auto">
+                    <div className="bg-white/10 backdrop-blur-xs border border-white/10 p-3 rounded-2xl text-center">
+                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-indigo-200 block">Sınav Katılımı</span>
+                      <span className="text-xl font-black text-white">{studentTotalExams} Sınav</span>
+                    </div>
+
+                    <div className="bg-white/10 backdrop-blur-xs border border-white/10 p-3 rounded-2xl text-center">
+                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-indigo-200 block">Genel Başarı</span>
+                      <span className={`text-xl font-black ${
+                        studentAverageScore >= 70 ? 'text-emerald-400' : studentAverageScore >= 50 ? 'text-amber-400' : 'text-rose-400'
+                      }`}>
+                        %{studentAverageScore}
+                      </span>
+                    </div>
+
+                    <div className="bg-white/10 backdrop-blur-xs border border-white/10 p-3 rounded-2xl text-center">
+                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-indigo-200 block">Toplam Doğru</span>
+                      <span className="text-xl font-black text-emerald-400">{studentTotalCorrect}</span>
+                    </div>
+
+                    <div className="bg-white/10 backdrop-blur-xs border border-white/10 p-3 rounded-2xl text-center">
+                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-indigo-200 block">Toplam Yanlış</span>
+                      <span className="text-xl font-black text-rose-400">{studentTotalWrong}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 1. SECTION: DERS BAZLI BAŞARI DAĞILIMI (MEB 6 TEMEL DERS) */}
+                <div className="bg-white rounded-3xl border border-slate-200 p-6 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h4 className="text-base font-black text-slate-800 flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5 text-indigo-600" />
+                      <span>MEB 4. Sınıf 6 Temel Ders Başarı Grafiği</span>
+                    </h4>
+                    <span className="text-xs text-slate-400 font-semibold">Tüm Geçmiş Testlerin Ortalaması</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {studentSubjectBreakdown.map((item) => {
+                      const hasExams = item.count > 0;
+                      const pct = item.avg;
+                      const barColor =
+                        !hasExams
+                          ? 'bg-slate-300'
+                          : pct >= 70
+                          ? 'bg-emerald-500'
+                          : pct >= 50
+                          ? 'bg-amber-500'
+                          : 'bg-rose-500';
+                      const badgeBg =
+                        !hasExams
+                          ? 'bg-slate-100 text-slate-600'
+                          : pct >= 70
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : pct >= 50
+                          ? 'bg-amber-100 text-amber-800 border-amber-300'
+                          : 'bg-rose-100 text-rose-800 border-rose-300';
+                      const statusText =
+                        !hasExams
+                          ? 'Sınav Yok'
+                          : pct >= 70
+                          ? 'Kazanım Kavranmış'
+                          : pct >= 50
+                          ? 'Pekiştirilmeli'
+                          : 'Kritik Eksiklik';
+
+                      return (
+                        <div
+                          key={item.subject.id}
+                          className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col justify-between space-y-3"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="text-xs font-black text-slate-800 block">
+                                {item.subject.name}
+                              </span>
+                              <span className="text-[11px] text-slate-500 font-medium">
+                                {hasExams ? `${item.count} Sınav • ${item.correct}D / ${item.wrong}Y` : 'Henüz Sınav Girilmedi'}
+                              </span>
+                            </div>
+                            <span className={`text-[11px] font-black px-2 py-0.5 rounded-lg border ${badgeBg}`}>
+                              {hasExams ? `%${pct}` : '—'}
+                            </span>
+                          </div>
+
+                          <div>
+                            <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                                style={{ width: `${hasExams ? pct : 0}%` }}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold mt-1.5">
+                              <span>{statusText}</span>
+                              {hasExams && <span>%{pct} Başarı</span>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. SECTION: 🚨 KONU / KAZANIM EKSİKLİKLERİ KARTI (EN KRİTİK BÖLÜM) */}
+                <div className="bg-linear-to-b from-rose-50/60 to-white rounded-3xl border-2 border-rose-200 p-6 space-y-4 shadow-2xs">
+                  <div className="flex items-start sm:items-center justify-between flex-wrap gap-2 border-b border-rose-200/80 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center font-black shrink-0">
+                        <TrendingDown className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-base font-black text-slate-900 flex items-center gap-2">
+                          <span>🚨 Konu ve Kazanım Eksiklikleri Analizi</span>
+                          <span className="bg-rose-100 text-rose-800 border border-rose-300 text-xs px-2.5 py-0.5 rounded-full font-black">
+                            {studentDeficiencies.length} Konuda Yanlış Var
+                          </span>
+                        </h4>
+                        <p className="text-xs text-rose-900/80 font-medium mt-0.5">
+                          Öğrencinin geçmiş sınavlarda zorlandığı konular otomatik tespit edilmiştir. Akıllı tahtada veya veli ödevlendirmesinde bu konulara öncelik verilmelidir.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {studentDeficiencies.length === 0 ? (
+                    <div className="py-8 text-center bg-emerald-50/60 border border-emerald-200 rounded-2xl p-6">
+                      <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
+                      <h5 className="font-black text-emerald-950 text-sm">
+                        Mükemmel! Tespit Edilen Konu Eksiği Bulunmuyor
+                      </h5>
+                      <p className="text-xs text-emerald-800 mt-1 max-w-md mx-auto">
+                        {currentAnalyticsStudent.name} katıldığı tüm sınavlardaki soruları başarıyla yanıtladı veya henüz çözülmemiş sınav bulunuyor.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                      {studentDeficiencies.map((def, idx) => {
+                        const isCritical = def.wrongCount >= 2;
+                        return (
+                          <div
+                            key={idx}
+                            className={`rounded-2xl p-4 border transition-all ${
+                              isCritical
+                                ? 'bg-rose-50/90 border-rose-300 shadow-2xs'
+                                : 'bg-amber-50/70 border-amber-300 shadow-2xs'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <div>
+                                <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md inline-block mb-1 ${
+                                  isCritical ? 'bg-rose-200 text-rose-950' : 'bg-amber-200 text-amber-950'
+                                }`}>
+                                  {def.subjectName}
+                                </span>
+                                <h5 className="font-black text-slate-900 text-xs sm:text-sm">
+                                  {def.topic}
+                                </h5>
+                              </div>
+                              <span className={`text-xs font-black px-2.5 py-1 rounded-xl shrink-0 border ${
+                                isCritical ? 'bg-rose-600 text-white border-rose-700' : 'bg-amber-500 text-white border-amber-600'
+                              }`}>
+                                {def.wrongCount} Yanlış {def.emptyCount > 0 ? `• ${def.emptyCount} Boş` : ''}
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-slate-700 font-medium leading-relaxed mb-3">
+                              {isCritical
+                                ? '🚨 Öğrenci bu konudaki birden çok soruda takıldı. MEB kazanımının acilen bireysel veya sınıfta tekrar edilmesi önerilir.'
+                                : '⚠️ Bu konuda dikkat eksikliği veya kavram yanılgısı yaşanmış. 1-2 soru çözülerek pekiştirilebilir.'}
+                            </p>
+
+                            {/* Missed Questions Snippets */}
+                            {def.wrongQuestions.length > 0 && (
+                              <div className="space-y-2 pt-2 border-t border-rose-200/60">
+                                <span className="text-[11px] font-bold text-slate-600 block">
+                                  Örnek Yanlış Yapılan Soru:
+                                </span>
+                                {def.wrongQuestions.slice(0, 1).map((wq, qIdx) => (
+                                  <div key={qIdx} className="bg-white/90 border border-slate-200 p-2.5 rounded-xl text-xs space-y-1.5">
+                                    <p className="font-bold text-slate-800 line-clamp-2">{wq.questionText}</p>
+                                    <div className="flex items-center gap-2 text-[11px] flex-wrap">
+                                      <span className="bg-rose-100 text-rose-900 px-2 py-0.5 rounded font-black">
+                                        Öğrencinin Yanıtı: {wq.studentAnswer}
+                                      </span>
+                                      <span className="bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded font-black">
+                                        Doğru Cevap: {wq.correctAnswer}
+                                      </span>
+                                    </div>
+                                    {wq.explanation && (
+                                      <p className="text-[11px] text-slate-600 font-medium italic pt-1 border-t border-slate-100">
+                                        💡 {wq.explanation}
+                                      </p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. SECTION: SINAV SINAV GEÇMİŞ İNCELEMESİ (AKORDEON) */}
+                <div className="bg-white rounded-3xl border border-slate-200 p-6 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h4 className="text-base font-black text-slate-800 flex items-center gap-2">
+                      <FolderArchive className="w-5 h-5 text-indigo-600" />
+                      <span>Sınav Sınav Geçmiş İncelemesi ({currentStudentResults.length} Sınav)</span>
+                    </h4>
+                    <span className="text-xs text-slate-400 font-semibold">Tıklayarak Yanlış Soruları İnceleyin</span>
+                  </div>
+
+                  {currentStudentResults.length === 0 ? (
+                    <div className="py-8 text-center text-slate-400 text-xs">
+                      Bu öğrenci henüz hiçbir teste katılmadı.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {currentStudentResults.map((res) => {
+                        const isExpanded = !!expandedStudentExamIds[res.id];
+                        const quiz = allQuizzes.find((q) => q.id === res.quizId);
+                        const wrongAnswers = (res.answers || []).filter((a) => !a.isCorrect);
+
+                        return (
+                          <div
+                            key={res.id}
+                            className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs"
+                          >
+                            {/* Accordion Exam Header */}
+                            <div
+                              onClick={() => toggleStudentExam(res.id)}
+                              className="bg-slate-50 hover:bg-slate-100/80 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 cursor-pointer transition-colors"
+                            >
+                              <div className="flex items-start sm:items-center gap-3">
+                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shrink-0 shadow-xs ${
+                                  res.score >= 70 ? 'bg-emerald-600 text-white' : res.score >= 50 ? 'bg-amber-500 text-white' : 'bg-rose-600 text-white'
+                                }`}>
+                                  {res.score}
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-black text-sm text-slate-800">
+                                      {res.subjectName} — {res.topic}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-semibold">
+                                      {formatQuizDate(res.submittedAt)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mt-0.5">
+                                    <span className="text-emerald-700">✓ {res.correctCount} Doğru</span>
+                                    <span>•</span>
+                                    <span className="text-rose-700">✗ {res.wrongCount} Yanlış</span>
+                                    <span>•</span>
+                                    <span className="text-slate-400">⭕ {res.emptyCount} Boş</span>
+                                    <span>•</span>
+                                    <span className="text-slate-500 font-normal">⏱️ {res.formattedDuration}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 self-end sm:self-center">
+                                <span className={`text-[11px] font-black px-2.5 py-1 rounded-xl border ${
+                                  wrongAnswers.length === 0
+                                    ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                    : 'bg-rose-100 text-rose-900 border-rose-300'
+                                }`}>
+                                  {wrongAnswers.length === 0 ? 'Tam Puan (0 Yanlış)' : `${wrongAnswers.length} Yanlış Soru`}
+                                </span>
+                                {isExpanded ? (
+                                  <ChevronUp className="w-4 h-4 text-slate-500" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Accordion Exam Body (Wrong Questions Detail) */}
+                            {isExpanded && (
+                              <div className="p-4 sm:p-5 bg-white border-t border-slate-200 space-y-4 animate-in fade-in duration-200">
+                                {wrongAnswers.length === 0 ? (
+                                  <div className="p-4 bg-emerald-50 text-emerald-900 rounded-xl text-xs font-bold flex items-center gap-2">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                    <span>Tebrikler! Öğrenci bu sınavdaki 20 sorunun tamamını eksiksiz doğru cevapladı (%100).</span>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-3">
+                                    <h6 className="text-xs font-black uppercase tracking-wider text-rose-700 flex items-center gap-1.5">
+                                      <span>🚨 Yanlış Yapılan Soruların Ayrıntılı İncelemesi ({wrongAnswers.length} Soru)</span>
+                                    </h6>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                      {wrongAnswers.map((ans, aIdx) => {
+                                        const qObj = quiz?.questions?.find((q) => q.id === ans.questionId) || quiz?.questions?.[ans.questionId - 1];
+                                        return (
+                                          <div
+                                            key={aIdx}
+                                            className="bg-slate-50/70 border border-slate-200 rounded-2xl p-4 space-y-2.5 flex flex-col justify-between"
+                                          >
+                                            <div>
+                                              <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-200">
+                                                <span className="font-black text-xs text-slate-800 bg-white border px-2 py-0.5 rounded-md">
+                                                  Soru {ans.questionId}
+                                                </span>
+                                                <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full">
+                                                  Hatalı Yanıt
+                                                </span>
+                                              </div>
+
+                                              <p className="text-xs font-bold text-slate-800 leading-snug mb-2.5">
+                                                {qObj?.question || `Soru #${ans.questionId} metni`}
+                                              </p>
+
+                                              {/* 4 Choices */}
+                                              {qObj?.options && (
+                                                <div className="space-y-1 mb-2.5">
+                                                  {(['A', 'B', 'C', 'D'] as const).map((optKey) => {
+                                                    const isStudentPick = ans.selectedOption === optKey;
+                                                    const isCorrectKey = qObj.correctAnswer === optKey;
+                                                    return (
+                                                      <div
+                                                        key={optKey}
+                                                        className={`text-[11px] p-1.5 rounded-lg border flex items-center justify-between ${
+                                                          isCorrectKey
+                                                            ? 'bg-emerald-100/80 border-emerald-400 font-black text-emerald-950'
+                                                            : isStudentPick
+                                                            ? 'bg-rose-100/90 border-rose-400 font-black text-rose-950'
+                                                            : 'bg-white border-slate-200 text-slate-600'
+                                                        }`}
+                                                      >
+                                                        <div className="flex items-center gap-1.5 truncate">
+                                                          <span className={`w-4 h-4 rounded text-[10px] flex items-center justify-center font-black ${
+                                                            isCorrectKey ? 'bg-emerald-600 text-white' : isStudentPick ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-700'
+                                                          }`}>
+                                                            {optKey}
+                                                          </span>
+                                                          <span className="truncate">{qObj.options[optKey]}</span>
+                                                        </div>
+                                                        {isStudentPick && (
+                                                          <span className="text-[9px] font-black uppercase text-rose-700 bg-white px-1.5 py-0.2 rounded border border-rose-300 shrink-0">
+                                                            Öğrenci
+                                                          </span>
+                                                        )}
+                                                        {isCorrectKey && (
+                                                          <span className="text-[9px] font-black uppercase text-emerald-700 bg-white px-1.5 py-0.2 rounded border border-emerald-300 shrink-0">
+                                                            Doğru Şık
+                                                          </span>
+                                                        )}
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </div>
+                                              )}
+                                            </div>
+
+                                            {/* Pedagogical Explanation */}
+                                            {qObj?.explanation && (
+                                              <div className="text-[11px] bg-amber-50/80 border border-amber-200 p-2.5 rounded-xl text-amber-950 font-medium leading-relaxed">
+                                                💡 <strong>Öğretmen Çözüm İpucu:</strong> {qObj.explanation}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. SECTION: ÖĞRETMEN ÖZEL GÖZLEM NOTU & VELİ PAYLAŞIMI */}
+                <div className="bg-white rounded-3xl border border-slate-200 p-6 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h4 className="text-base font-black text-slate-800 flex items-center gap-2">
+                      <MessageSquare className="w-5 h-5 text-indigo-600" />
+                      <span>Öğretmen Özel Gözlem ve Rehberlik Notu</span>
+                    </h4>
+                    <span className="text-xs text-indigo-600 font-bold bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
+                      ☁️ Sunucuda Saklanır • Tüm Cihazlarda Eşit
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-500 font-medium">
+                    {currentAnalyticsStudent.name} hakkında ders içi dikkati, işlem basamaklarını takip becerisi ve çalışma alışkanlıklarıyla ilgili gözlemlerinizi yazın. Bu not doğrudan veritabanında saklanır ve veli WhatsApp gelişim raporuna eklenir.
+                  </p>
+
+                  <div className="space-y-3">
+                    <textarea
+                      rows={3}
+                      value={editingNoteText}
+                      onChange={(e) => setEditingNoteText(e.target.value)}
+                      placeholder="Örn: Ders içi dikkati ve ilgisi yüksek. Matematik problemlerinde acele etmeden işlem basamaklarını adım adım yazması durumunda başarısı çok daha artacaktır..."
+                      className="w-full p-4 rounded-2xl border-2 border-slate-200 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600/20 text-xs font-semibold text-slate-800 focus:outline-none transition-all"
+                    />
+
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleSaveStudentNote}
+                          disabled={isSavingNote}
+                          id="save-student-note-btn"
+                          className="bg-slate-900 hover:bg-slate-800 text-white font-black px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>{isSavingNote ? 'Kaydediliyor...' : 'Gözlem Notunu Kaydet'}</span>
+                        </button>
+
+                        <button
+                          onClick={handleSendWhatsAppReport}
+                          id="send-whatsapp-report-btn"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-colors cursor-pointer shadow-xs"
+                        >
+                          <Send className="w-4 h-4" />
+                          <span>Veliye WhatsApp Raporu Gönder</span>
+                        </button>
+                      </div>
+
+                      {noteSavedToast && (
+                        <span className="text-xs font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 animate-in fade-in duration-200">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Not sunucuya kalıcı olarak kaydedildi!</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

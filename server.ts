@@ -1,9 +1,11 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { getFallbackQuestions } from "./src/data/mebCurriculum";
+import { DEFAULT_STUDENTS } from "./src/data/defaultStudents";
 
 dotenv.config();
 
@@ -39,7 +41,7 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// In-memory Server-side State for Cross-Device Synchronization
+// Centralized Persistent Server-side Storage for Cross-Device Synchronization
 interface ServerQuizItem {
   id: string;
   title: string;
@@ -50,25 +52,151 @@ interface ServerQuizItem {
   questions: any[];
 }
 
-let serverActiveQuiz: ServerQuizItem | null = null;
+interface ServerStudentNoteItem {
+  studentId: string;
+  note: string;
+  updatedAt: string;
+}
 
+interface DbSchema {
+  activeQuiz: ServerQuizItem | null;
+  quizzes: ServerQuizItem[];
+  students: any[];
+  results: any[];
+  studentNotes: Record<string, ServerStudentNoteItem>;
+}
+
+const DB_DIR = path.join(process.cwd(), "data");
+const DB_FILE = path.join(DB_DIR, "db.json");
+
+const DEFAULT_INITIAL_QUIZ: ServerQuizItem = {
+  id: 'quiz-meb-4-default',
+  title: 'Matematik 4. Sınıf - Doğal Sayılar ve Basamak Değeri Değerlendirme Testi',
+  subjectId: 'matematik',
+  subjectName: 'Matematik',
+  topic: 'Doğal Sayılar ve Basamak Değeri',
+  createdAt: new Date().toISOString(),
+  questions: getFallbackQuestions('Matematik', 'Doğal Sayılar ve Basamak Değeri'),
+};
+
+function saveDb(data: DbSchema) {
+  try {
+    if (!fs.existsSync(DB_DIR)) {
+      fs.mkdirSync(DB_DIR, { recursive: true });
+    }
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch (err) {
+    console.error("[Sunucu Veritabanı] db.json kaydedilemedi:", err);
+  }
+}
+
+function loadDb(): DbSchema {
+  try {
+    if (!fs.existsSync(DB_DIR)) {
+      fs.mkdirSync(DB_DIR, { recursive: true });
+    }
+    if (fs.existsSync(DB_FILE)) {
+      const content = fs.readFileSync(DB_FILE, "utf-8");
+      const parsed = JSON.parse(content);
+      return {
+        activeQuiz: parsed.activeQuiz !== undefined ? parsed.activeQuiz : DEFAULT_INITIAL_QUIZ,
+        quizzes: Array.isArray(parsed.quizzes) && parsed.quizzes.length > 0 ? parsed.quizzes : [DEFAULT_INITIAL_QUIZ],
+        students: Array.isArray(parsed.students) && parsed.students.length > 0 ? parsed.students : DEFAULT_STUDENTS,
+        results: Array.isArray(parsed.results) ? parsed.results : [],
+        studentNotes: parsed.studentNotes && typeof parsed.studentNotes === "object" ? parsed.studentNotes : {},
+      };
+    }
+  } catch (err) {
+    console.warn("[Sunucu Veritabanı] db.json okunurken uyarı alındı, varsayılanlar yükleniyor:", err);
+  }
+
+  const initialDb: DbSchema = {
+    activeQuiz: DEFAULT_INITIAL_QUIZ,
+    quizzes: [DEFAULT_INITIAL_QUIZ],
+    students: DEFAULT_STUDENTS,
+    results: [],
+    studentNotes: {},
+  };
+  saveDb(initialDb);
+  return initialDb;
+}
+
+const db = loadDb();
+let serverActiveQuiz: ServerQuizItem | null = db.activeQuiz;
+let serverStudents: any[] = db.students;
 const serverQuizzesMap = new Map<string, ServerQuizItem>();
+db.quizzes.forEach((q) => {
+  if (q && q.id) serverQuizzesMap.set(q.id, q);
+});
+if (serverActiveQuiz && !serverQuizzesMap.has(serverActiveQuiz.id)) {
+  serverQuizzesMap.set(serverActiveQuiz.id, serverActiveQuiz);
+}
 
 const serverResultsMap = new Map<string, any>(); // key: `${quizId}_${studentId}`
+db.results.forEach((r) => {
+  if (r && r.quizId && r.studentId) {
+    serverResultsMap.set(`${r.quizId}_${r.studentId}`, r);
+  }
+});
+let serverStudentNotes: Record<string, ServerStudentNoteItem> = db.studentNotes || {};
 
-// GET: Current Active Quiz from Server
-app.get("/api/active-quiz", (req, res) => {
+function persistDb() {
+  saveDb({
+    activeQuiz: serverActiveQuiz,
+    quizzes: Array.from(serverQuizzesMap.values()),
+    students: serverStudents,
+    results: Array.from(serverResultsMap.values()),
+    studentNotes: serverStudentNotes,
+  });
+}
+
+// ==========================================
+// 1. GET /api/sync : Tek seferde tüm sunucu durumunu döner
+// ==========================================
+app.get("/api/sync", (req, res) => {
   res.json({
     success: true,
-    quiz: serverActiveQuiz,
+    activeQuiz: serverActiveQuiz,
+    archiveQuizzes: Array.from(serverQuizzesMap.values()).sort((a, b) => {
+      const timeA = new Date(a.createdAt || 0).getTime();
+      const timeB = new Date(b.createdAt || 0).getTime();
+      return timeB - timeA;
+    }),
+    students: serverStudents,
+    results: Array.from(serverResultsMap.values()),
+    studentNotes: serverStudentNotes,
+    serverTime: new Date().toISOString(),
   });
 });
 
-// POST: Update Current Active Quiz on Server (supports null / unpublishing)
+// ==========================================
+// 2. POST /api/submit-exam : Öğrenci sınav sonucunu sunucuya kaydeder
+// ==========================================
+app.post("/api/submit-exam", (req, res) => {
+  const { result } = req.body;
+  if (!result || !result.quizId || !result.studentId) {
+    return res.status(400).json({ error: "Geçersiz sınav sonucu nesnesi." });
+  }
+
+  const key = `${result.quizId}_${result.studentId}`;
+  serverResultsMap.set(key, result);
+  persistDb();
+  console.log(`[Sunucu /submit-exam] Sonuç kaydedildi: ${result.studentName} (No: ${result.studentNo}) -> Puan: ${result.score}`);
+  res.json({
+    success: true,
+    message: "Sınav sonucu sunucuya kaydedildi.",
+    result,
+  });
+});
+
+// ==========================================
+// 3. POST /api/active-quiz : Aktif sınavı günceller veya yayından kaldırır
+// ==========================================
 app.post("/api/active-quiz", (req, res) => {
   const { quiz } = req.body;
   if (quiz === null || quiz === undefined) {
     serverActiveQuiz = null;
+    persistDb();
     console.log(`[Sunucu] Aktif sınav yayından kaldırıldı (boş durum).`);
     return res.json({
       success: true,
@@ -85,6 +213,7 @@ app.post("/api/active-quiz", (req, res) => {
 
   serverActiveQuiz = quiz;
   serverQuizzesMap.set(quiz.id, quiz);
+  persistDb();
   console.log(`[Sunucu] Aktif sınav güncellendi: ${quiz.subjectName} - ${quiz.topic} (${quiz.id})`);
 
   res.json({
@@ -94,14 +223,73 @@ app.post("/api/active-quiz", (req, res) => {
   });
 });
 
+// GET: Current Active Quiz from Server
+app.get("/api/active-quiz", (req, res) => {
+  res.json({
+    success: true,
+    quiz: serverActiveQuiz,
+  });
+});
+
 // DELETE: Deactivate / Unpublish Active Quiz
 app.delete("/api/active-quiz", (req, res) => {
   serverActiveQuiz = null;
+  persistDb();
   console.log(`[Sunucu] Aktif sınav silindi/yayından kaldırıldı.`);
   res.json({
     success: true,
     message: "Aktif sınav yayından kaldırıldı.",
     quiz: null,
+  });
+});
+
+// ==========================================
+// 4. POST /api/update-students : Sınıf listesini sunucuda günceller
+// ==========================================
+app.post("/api/update-students", (req, res) => {
+  const { students } = req.body;
+  if (!Array.isArray(students) || students.length === 0) {
+    return res.status(400).json({ error: "Geçersiz öğrenci listesi." });
+  }
+
+  serverStudents = students;
+  persistDb();
+  console.log(`[Sunucu] 35 kişilik sınıf listesi senkronize edildi (${students.length} öğrenci).`);
+  res.json({
+    success: true,
+    message: "Sınıf listesi sunucuda güncellendi.",
+    students: serverStudents,
+  });
+});
+
+// ==========================================
+// 5. POST /api/student-note : Öğretmen özel öğrenci gözlem notunu saklar
+// ==========================================
+app.post("/api/student-note", (req, res) => {
+  const { studentId, note } = req.body;
+  if (!studentId) {
+    return res.status(400).json({ error: "Öğrenci ID zorunludur." });
+  }
+
+  serverStudentNotes[studentId] = {
+    studentId,
+    note: typeof note === "string" ? note.trim() : "",
+    updatedAt: new Date().toISOString(),
+  };
+  persistDb();
+  console.log(`[Sunucu] Öğrenci gözlem notu kaydedildi: ${studentId}`);
+  res.json({
+    success: true,
+    message: "Öğrenci gözlem notu başarıyla kaydedildi.",
+    studentNotes: serverStudentNotes,
+  });
+});
+
+// GET: Student Notes
+app.get("/api/student-notes", (req, res) => {
+  res.json({
+    success: true,
+    studentNotes: serverStudentNotes,
   });
 });
 
@@ -111,7 +299,6 @@ app.get("/api/quizzes/:id", (req, res) => {
   const quiz = serverQuizzesMap.get(id);
 
   if (!quiz) {
-    // If it matches active quiz id
     if (serverActiveQuiz && serverActiveQuiz.id === id) {
       return res.json({ success: true, quiz: serverActiveQuiz });
     }
@@ -133,6 +320,7 @@ app.delete("/api/quizzes/:id", (req, res) => {
   if (serverActiveQuiz && serverActiveQuiz.id === id) {
     serverActiveQuiz = null;
   }
+  persistDb();
   res.json({ success: true });
 });
 
@@ -144,6 +332,7 @@ app.post("/api/quizzes", (req, res) => {
   }
 
   serverQuizzesMap.set(quiz.id, quiz);
+  persistDb();
   res.json({ success: true });
 });
 
@@ -171,7 +360,7 @@ app.get("/api/results", (req, res) => {
   });
 });
 
-// POST: Save Result
+// POST: Save Result (Legacy & Direct)
 app.post("/api/results", (req, res) => {
   const { result } = req.body;
   if (!result || !result.quizId || !result.studentId) {
@@ -180,6 +369,7 @@ app.post("/api/results", (req, res) => {
 
   const key = `${result.quizId}_${result.studentId}`;
   serverResultsMap.set(key, result);
+  persistDb();
   res.json({ success: true });
 });
 
@@ -191,6 +381,7 @@ app.delete("/api/results/:quizId", (req, res) => {
       serverResultsMap.delete(k);
     }
   }
+  persistDb();
   res.json({ success: true });
 });
 

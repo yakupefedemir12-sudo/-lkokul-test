@@ -73,6 +73,38 @@ export const MEB_CURRICULUM: SubjectInfo[] = [
       'Tüm Konulardan Karışık (Genel Tekrar)',
     ],
   },
+  {
+    id: 'insan_haklari',
+    name: 'İnsan Hakları, Yurttaşlık ve Demokrasi',
+    icon: 'Scale',
+    color: 'from-rose-500 to-pink-600',
+    badgeBg: 'bg-rose-100 text-rose-800 border-rose-300',
+    badgeText: 'text-rose-700',
+    topics: [
+      'İnsan Olmak ve İnsanın Değeri (Hak ve Özgürlüklerimiz)',
+      'Hak, Özgürlük ve Sorumluluk',
+      'Adalet ve Eşitlik',
+      'Uzlaşı ve Anlaşmazlıkların Çözümü',
+      'Kurallar (Okul, Aile ve Toplum Hayatı)',
+      'Birlikte Yaşama ve Dayanışma',
+      'Tüm Konulardan Karışık (Genel Tekrar)',
+    ],
+  },
+  {
+    id: 'trafik_guvenligi',
+    name: 'Trafik Güvenliği',
+    icon: 'Car',
+    color: 'from-amber-600 to-orange-600',
+    badgeBg: 'bg-amber-100 text-amber-900 border-amber-300',
+    badgeText: 'text-amber-800',
+    topics: [
+      'Trafikte Güvenlik (Trafik Unsurları, Yaya ve Yolcu Güvenliği, Emniyet Kemeri)',
+      'Trafik İşaret Levhaları ve Işıklar',
+      'Trafikte Saygı ve Kurallara Uymak',
+      'Trafikte İlk Yardım Bilinci, İlk Yardım Çantası ve 112 Acil Çağrı',
+      'Tüm Konulardan Karışık (Genel Tekrar)',
+    ],
+  },
 ];
 
 interface RawQuestion {
@@ -216,7 +248,59 @@ export function getFallbackQuestions(subject: string, topic: string): QuizQuesti
     ];
   }
 
-  // 4. SOSYAL BİLGİLER
+  // 4. İNSAN HAKLARI, YURTTAŞLIK VE DEMOKRASİ
+  else if (subject.includes('İnsan Hakları') || subject.includes('insan_haklari') || subject.includes('Demokrasi') || subject.includes('Yurttaşlık')) {
+    rawList = [
+      { q: 'İnsanların doğuştan sahip olduğu, vazgeçilmez ve devredilemez haklara ne denir?', a: 'Sosyal kulüp', b: 'İnsan hakları', c: 'Özel yetenek', d: 'Kişisel hobi', correct: 'B', exp: 'Doğuştan gelen, herkes için geçerli ve vazgeçilmez haklara insan hakları denir.' },
+      { q: 'İnsan haklarının en temeli olan ve diğer tüm hakların kullanılmasını sağlayan hak hangisidir?', a: 'Seyahat hakkı', b: 'Yaşama hakkı', c: 'Mülkiyet hakkı', d: 'Tüketici hakkı', correct: 'B', exp: 'Yaşama hakkı en temel haktır; yaşama hakkı olmadan diğer hiçbir hak kullanılamaz.' },
+      { q: 'Her insanın kendi fikirlerini başkalarının baskısı altında olmadan ifade edebilmesine ne ad verilir?', a: 'Düşünce ve ifade özgürlüğü', b: 'Meslek seçimi', c: 'Adalet sistemi', d: 'Sosyal yardım', correct: 'A', exp: 'Bireylerin duygu ve düşüncelerini serbestçe söyleyebilmesine düşünce ve ifade özgürlüğü denir.' },
+      { q: 'Haklarımızı kullanırken başkalarının haklarına ve kurallara özen göstermek hangi kavramla açıklanır?', a: 'Kişisel çıkar', b: 'Sorumluluk', c: 'Rekabet', d: 'Üstünlük', correct: 'B', exp: 'Hakların bilincinde olmak ve başkalarına zarar vermeden davranmak sorumluluk duygusudur.' },
+      { q: 'Kanunlar ve kurallar önünde hiçbir ayrım gözetmeksizin herkesin aynı muameleyi görmesine ne ad verilir?', a: 'Ayrıcalık', b: 'Eşitlik', c: 'Özgüven', d: 'Tolerans', correct: 'B', exp: 'Yasa önünde dil, din, ırk ve cinsiyet farkı gözetmeksizin herkes eşittir.' },
+      { q: 'Herkese hak ettiğinin verilmesi, haksızlığın önlenmesi ve haklının korunmasına ne denir?', a: 'Adalet', b: 'Şans', c: 'Kader', d: 'Cömertlik', correct: 'A', exp: 'Hak ve hukuka uygun davranma, herkese payına düşeni verme ilkesine adalet denir.' },
+      { q: 'Farklı görüşlerdeki bireylerin bir araya gelerek ortak bir noktada buluşup anlaşmasına ne ad verilir?', a: 'İnatlaşma', b: 'Uzlaşı', c: 'Küsme', d: 'Tartışma', correct: 'B', exp: 'Görüş ayrılıklarını karşılıklı anlayışla çözüp anlaşmaya uzlaşı denir.' },
+      { q: 'Anlaşmazlıkların çözümünde başvurulması gereken en medeni ve etkili yol hangisidir?', a: 'Öfkeyle bağırmak', b: 'İletişim ve diyalog kurmak', c: 'Ortamı terk edip küsmek', d: 'Kendi fikrini zorla kabul ettirmek', correct: 'B', exp: 'Sorunlar karşılıklı saygı çerçevesinde konuşarak ve dinleyerek çözülür.' },
+      { q: 'Okul kurallarına uymak öğrencilere ve okula ne kazandırır?', a: 'Sadece yorulmayı', b: 'Güvenli, huzurlu ve adil bir öğrenme ortamı', c: 'Sıkıcı dersler', d: 'Daha çok ödev', correct: 'B', exp: 'Kurallar birlikteliği düzenler, güvenliği sağlar ve öğrenmeyi kolaylaştırır.' },
+      { q: 'Toplumda barış ve huzur ortamının sürdürülebilmesi için hangisi zorunludur?', a: 'Herkesin aynı fikirde olması', b: 'Farklılıklara saygı ve hoşgörü', c: 'Kuralların görmezden gelinmesi', d: 'Yalnızca büyüklerin konuşması', correct: 'B', exp: 'Farklılıklara saygı duymak ve empati kurmak toplumsal barışı güçlendirir.' },
+      { q: 'Zor durumda olan bir arkadaşımıza veya komşumuza karşılıksız destek olmak hangi değere örnektir?', a: 'Kıskançlık', b: 'Dayanışma ve yardımlaşma', c: 'Bencillik', d: 'Gösteriş', correct: 'B', exp: 'Birlikte yaşamanın en güzel kuralı yardımlaşma ve dayanışmadır.' },
+      { q: 'Çocuk Hakları Sözleşmesi\'ne göre her çocuğun okula gitmesi ve bilgi edinmesi hangi hak kapsamındadır?', a: 'Seyahat hakkı', b: 'Eğitim hakkı', c: 'Mülk edinme hakkı', d: 'Ticaret hakkı', correct: 'B', exp: 'Her çocuk nitelikli, ücretsiz ve eşit bir şekilde eğitim alma hakkına sahiptir.' },
+      { q: 'Hastalandığımızda doktora gitmek ve tedavi olmak hangi temel insan hakkımızdır?', a: 'Dinlenme hakkı', b: 'Sağlık hakkı', c: 'Oyun hakkı', d: 'Vatandaşlık hakkı', correct: 'B', exp: 'Sağlıklı bir çevrede yaşama ve sağlık hizmeti alma her bireyin temel hakkıdır.' },
+      { q: 'Aile içerisinde kararlar alınırken çocukların da fikrinin dinlenmesi neyi gösterir?', a: 'Ailenin disiplinsiz olduğunu', b: 'Demokratik ve saygılı bir aile ortamını', c: 'Zaman kaybı yaşandığını', d: 'Çocukların kararları yönettiğini', correct: 'B', exp: 'Aile içi istişare ve fikir paylaşımı çocukta özgüven ve demokrasi bilinci geliştirir.' },
+      { q: 'Sınıf başkanlığı seçiminde her öğrencinin bir oy hakkı olması hangi ilkeyi simgeler?', a: 'Eşitlik ve demokrasi', b: 'Tesadüf', c: 'Kura çekimi', d: 'Öğretmen otoritesi', correct: 'A', exp: 'Seçimlerde herkesin eşit oy hakkı olması demokrasinin ve eşitliğin göstergesidir.' },
+      { q: 'Haklarımızın ihlal edildiğini düşündüğümüzde başvurmamız gereken resmi yöntem hangisidir?', a: 'Kavga etmek', b: 'Dilekçe hakkını kullanarak ilgili makama başvurmak', c: 'Sosyal medyada hakaret etmek', d: 'Hakkımızdan vazgeçmek', correct: 'B', exp: 'Vatandaşlar hak arama hürriyetini yasal yollarla ve dilekçeyle kullanır.' },
+      { q: 'Engelli bireylerin kaldırımları ve kamu binalarını rahatça kullanabilmesi için yapılan rampalar neyi sağlar?', a: 'Fırsat eşitliği ve adaleti', b: 'Mimaride süslemeyi', c: 'Trafik yoğunluğunu', d: 'Ekstra masrafı', correct: 'A', exp: 'Özel gereksinimli bireylerin haklarını eşit kullanabilmesi adaletin gereğidir.' },
+      { q: 'Sınıfımızdaki veya çevremizdeki ortak eşyaları temiz ve özenli kullanmak ne tür bir davranıştır?', a: 'Zorunlu olmayan bir iş', b: 'Ortak yaşama saygı ve sorumluluk', c: 'Kişisel menfaat', d: 'Öğretmenden puan alma çabası', correct: 'B', exp: 'Ortak yaşam alanlarını ve eşyaları korumak sorumlu yurttaşlık bilincidir.' },
+      { q: 'Aşağıdakilerden hangisi bir öğrencinin okuldaki sorumluluklarından biridir?', a: 'Okulun faturalarını ödemek', b: 'Ders araç gereçlerini düzenli getirmek ve dersi dinlemek', c: 'Okulun boyasını yenilemek', d: 'Öğretmenlerin maaşını hesaplamak', correct: 'B', exp: 'Derslere zamanında girmek ve ödevlerini yapmak öğrencinin temel sorumluluğudur.' },
+      { q: 'Bir kimsenin haklarını kullanırken başkalarının haklarını çiğnememesi hangi ilkeyle özetlenir?', a: 'Özgürlük sınırsızdır', b: 'Benim özgürlüğüm başkasının hakkının başladığı yerde biter', c: 'Güçlü olan haklıdır', d: 'Herkes istediğini yapabilir', correct: 'B', exp: 'Özgürlük sınırsız değildir; başkalarının hak ve huzuru gözetilmelidir.' },
+    ];
+  }
+
+  // 5. TRAFİK GÜVENLİĞİ
+  else if (subject.includes('Trafik') || subject.includes('trafik_guvenligi')) {
+    rawList = [
+      { q: 'Karayolunda hareket halinde veya duran insan, hayvan ve araçların tümüne ne ad verilir?', a: 'Ulaşım', b: 'Trafik', c: 'Yolculuk', d: 'Taşıt kervanı', correct: 'B', exp: 'İnsan, hayvan ve taşıtların karayolu üzerindeki hareketlerinin bütününe trafik denir.' },
+      { q: 'Yaya kaldırımı bulunmayan iki yönlü karayollarında yayalar yolun neresinden yürümelidir?', a: 'Yolun tam ortasından', b: 'Gidiş yönüne göre sol banketten', c: 'Gidiş yönüne göre sağ banketten', d: 'Fark etmez, araçlarla beraber', correct: 'B', exp: 'Kaldırımsız yollarda yayalar karşıdan gelen araçları rahatça görebilmek için sol taraftan yürümelidir.' },
+      { q: 'Otomobilde seyahat ederken sürücü ve tüm yolcuların can güvenliği için takması ZORUNLU olan güvenlik donanımı hangisidir?', a: 'Güneş gözlüğü', b: 'Emniyet kemeri', c: 'Kulaklık', d: 'Kışlık mont', correct: 'B', exp: 'Emniyet kemeri kaza ve ani fren anında araçtan fırlamayı ve ağır yaralanmaları önler.' },
+      { q: 'Karşıdan karşıya geçerken tercih etmemiz gereken EN GÜVENLİ geçiş yerleri nerelerdir?', a: 'Virajlar ve iki aracın arası', b: 'Yaya geçidi, okul geçidi, alt ve üst geçitler', c: 'Trafiğin en hızlı aktığı noktalar', d: 'Otoyol bariyerleri üzerinden atlamak', correct: 'B', exp: 'Yaya/okul geçitleri ile alt-üst geçitler yayalar için en güvenli noktalardır.' },
+      { q: 'Trafik ışıklı işaret cihazında KIRMIZI ışık yandığında ne yapılmalıdır?', a: 'Hızlanılmalıdır', b: 'Durulmalıdır', c: 'Dikkatle geçilmelidir', d: 'Korna çalınmalıdır', correct: 'B', exp: 'Kırmızı ışık hem yayalar hem taşıtlar için kesin dur emridir.' },
+      { q: 'Trafik ışığında SARI ışık yandığında ne anlama gelir?', a: 'Hemen durulmalı', b: 'Geçmeye veya durmaya hazırlanılmalı', c: 'Geri geri gidilmeli', d: 'Yol trafiğe kapalıdır', correct: 'B', exp: 'Sarı ışık ikaz ışığıdır; kırmızıdan sonra kalkışa, yeşilden sonra duruşa hazırlık bildirir.' },
+      { q: 'ÜÇGEN şeklindeki trafik levhaları sürücü ve yayalara genel olarak ne bildirir?', a: 'Yasaklama', b: 'Tehlike uyarısı', c: 'Bilgilendirme', d: 'Otopark yeri', correct: 'B', exp: 'Üçgen levhalar yoldaki tehlikelere karşı uyarı ve dikkat bildirir.' },
+      { q: 'DAİRE (yuvarlak) şeklindeki trafik işaret levhaları ne bildirir?', a: 'Tarihi yerleri', b: 'Yasaklama ve kısıtlamaları', c: 'Yolun bittiğini', d: 'Hava durumunu', correct: 'B', exp: 'Yuvarlak kırmızı çerçeveli levhalar yasaklama ve kısıtlama belirtir (Örn: Giriş Yasak).' },
+      { q: 'KARE veya DİKDÖRTGEN şeklindeki mavi trafik levhaları ne anlama gelir?', a: 'Tehlike işareti', b: 'Bilgi ve bilgilendirme levhaları', c: 'Hız sınırı', d: 'Kesin dur', correct: 'B', exp: 'Kare veya dikdörtgen levhalar yayalara ve sürücülere bilgi verir (Örn: Hastane, Yaya Geçidi).' },
+      { q: 'Trafik kazası, yangın veya acil tıbbi durumlarda aranması gereken tek acil numara kaçtır?', a: '155', b: '112 Acil Çağrı Merkezi', c: '110', d: '156', correct: 'B', exp: 'Türkiye\'de tüm acil yardım birimleri tek numara olan 112 çatısı altında birleştirilmiştir.' },
+      { q: 'Taşıtlarda meydana gelebilecek kazalarda yaralılara anında müdahale için bulundurulan çantaya ne denir?', a: 'Alet çantası', b: 'İlk yardım çantası', c: 'Seyahat çantası', d: 'Boya kutusu', correct: 'B', exp: 'İlk yardım çantası acil sağlık müdahalesi malzemelerini barındırır.' },
+      { q: 'Toplu taşıma araçlarında (otobüs, metro) hangi bireylere öncelikli olarak yer verilmelidir?', a: 'Çantası hafif olanlara', b: 'Yaşlılar, hamileler, engelliler ve gazilere', c: 'İlk binen kişilere', d: 'En arkada oturanlara', correct: 'B', exp: 'Dezavantajlı, yaşlı ve özel gereksinimli yolculara yer vermek toplumsal bir nezakettir.' },
+      { q: 'Okul servis aracına binerken ve inerken yapılması gereken en doğru davranış hangisidir?', a: 'Servis tamamen durmadan kapıya koşmak', b: 'Servisin tam durmasını bekleyip sırayla inip binmek', c: 'Pencereden dışarı sarkmak', d: 'Koridorda ayakta yolculuk yapmak', correct: 'B', exp: 'Servis durmadan hareket edilmemeli, emniyet kemeri bağlı kalınmalıdır.' },
+      { q: 'Bisiklet, paten veya kaykay kullanırken can güvenliğimiz için mutlaka takmamız gereken ekipman hangisidir?', a: 'Şapka', b: 'Kask, dizlik ve dirseklik', c: 'Güneş gözlüğü', d: 'Akıllı saat', correct: 'B', exp: 'Düşme anında baş ve eklemleri korumak için kask ve dizlik hayati önem taşır.' },
+      { q: 'Gece yürüyüşlerinde yayaların sürücüler tarafından uzaktan kolayca fark edilebilmesi için ne yapılmalıdır?', a: 'Koyu siyah giysiler giyilmelidir', b: 'Açık renkli veya reflektörlü (yansıtıcı) giysiler giyilmelidir', c: 'Hızlıca koşulmalıdır', d: 'Yolun ortasından gidilmelidir', correct: 'B', exp: 'Açık renk ve ışık yansıtan reflektörler sürücülerin yayaları erkenden fark etmesini sağlar.' },
+      { q: 'Park etmiş iki aracın arasından yola aniden fırlamak neden çok tehlikelidir?', a: 'Araçlar kirlenebilir', b: 'Gelen sürücüler bizi göremez ve durmaya zamanları kalmaz', c: 'Ayakkabımız tozlanır', d: 'Trafik polisi ceza yazamaz', correct: 'B', exp: 'Görüş açısı kapalı olduğundan ani fırlamalarda sürücüler fren yapamaz.' },
+      { q: 'Trafiği yöneten ve kurallara uyulmasını denetleyen resmi görevli kimdir?', a: 'Güvenlik görevlisi', b: 'Trafik polisi ve jandarması', c: 'Belediye zabıtası', d: 'Park bekçisi', correct: 'B', exp: 'Trafik polisi karayollarında düzeni sağlar ve kuralları uygulatır.' },
+      { q: 'Trafikte karşılaştığımız yayalara ve diğer sürücülere karşı sabırlı, saygılı ve hoşgörülü olmaya ne denir?', a: 'Yol yarışı', b: 'Trafik adabı ve saygı', c: 'Zaman kaybı', d: 'Acemilik', correct: 'B', exp: 'Trafik kurallarına saygıyla uymak ve nezaket göstermek trafik adabıdır.' },
+      { q: 'Işıksız yaya geçitlerinde veya okul geçitlerinde geçiş üstünlüğü kime aittir?', a: 'Hızlı gelen arabalara', b: 'Yayalarındır', c: 'Kamyonlarındır', d: 'Motosikletlerindir', correct: 'B', exp: 'Trafik kanununa göre yaya geçitlerinde geçiş önceliği daima yayalarındır.' },
+      { q: 'Trafik kazası anında yaralılara bilinçsizce ve rastgele müdahale etmek neden tehlikelidir?', a: 'Zaman kazandırır', b: 'Yaralının sakatlanmasına veya durumunun kötüleşmesine yol açabilir', c: 'Sağlık ekipleri sevinir', d: 'Hiçbir sakıncası yoktur', correct: 'B', exp: 'İlk yardım eğitimi olmayan kişiler yaralıyı gereksiz hareket ettirmemeli, 112\'yi beklemelidir.' },
+    ];
+  }
+
+  // 6. SOSYAL BİLGİLER
   else {
     rawList = [
       { q: 'Türkiye Cumhuriyeti kimlik kartımızda yer alan T.C. kimlik numarası kaç basamaklıdır?', a: '9', b: '10', c: '11', d: '12', correct: 'C', exp: 'T.C. kimlik numarası 11 hanelidir ve her vatandaşa özeldir.' },
