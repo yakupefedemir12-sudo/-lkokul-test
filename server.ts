@@ -479,7 +479,51 @@ app.delete("/api/results/:quizId", (req, res) => {
   res.json({ success: true });
 });
 
-// AI Quiz Generation Endpoint
+// ==========================================
+// YARATICI TEMA VE GÜVENLİ PARSER YARDIMCILARI
+// ==========================================
+const CREATIVE_THEMES = [
+  "uzay araştırması, teleskop gözlemi ve genç astronotlar roket atölyesi",
+  "tarihi Erbaa çarşısı, organik köy pazarı ve manav alışverişi",
+  "doğa kampı, orman yürüyüşü, çadır kurma ve izcilik macerası",
+  "okul bilim şenliği, genç mucitler kulübü ve akıllı robot yarışması",
+  "okullar arası spor turnuvası, bayrak koşusu ve dostluk maçı",
+  "arkeoloji müzesi gezisi ve antik uygarlıklar kazı keşfi",
+  "çevre koruma kulübü, fidan dikimi ve sıfır atık geri dönüşüm projesi",
+  "büyülü kütüphane, masal atölyesi ve kitap dedektifliği",
+  "köy çiftliği ziyareti, meyve hasat şenliği ve organik tarım",
+  "denizaltı akvaryumu gezisi ve mercan resifleri su altı araştırması",
+  "uçurtma şenliği, rüzgar türbini enerjisi ve doğa gözlemi",
+  "hava durumu gözlem istasyonu ve meteoroloji balonu deneyi",
+];
+
+function safeParseQuestions(rawText: string): any[] | null {
+  if (!rawText || typeof rawText !== "string") return null;
+  let cleaned = rawText.trim();
+  // Strip markdown code fences if present (```json ... ``` or ``` ...)
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+  // Extract JSON array between [ and ]
+  const firstBracket = cleaned.indexOf("[");
+  const lastBracket = cleaned.lastIndexOf("]");
+  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+    cleaned = cleaned.substring(firstBracket, lastBracket + 1);
+  }
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch (err) {
+    console.warn("[JSON Parser] JSON ayrıştırma uyarısı:", err);
+  }
+  return null;
+}
+
+// ==========================================
+// AI Quiz Generation Endpoint (Müfredat - Sıcaklık 0.8 & Yüksek Yaratıcılık)
+// ==========================================
 app.post("/api/generate-quiz", async (req, res) => {
   const { subject, topic, customPrompt } = req.body;
 
@@ -504,28 +548,41 @@ app.post("/api/generate-quiz", async (req, res) => {
   }
 
   try {
-    const systemInstruction = `Sen Türkiye Cumhuriyeti MEB (Milli Eğitim Bakanlığı) 4. Sınıf ilkokul müfredatında uzmanlaşmış kıdemli bir eğitim teknolojileri uzmanısın.
+    const randomTheme = CREATIVE_THEMES[Math.floor(Math.random() * CREATIVE_THEMES.length)];
+    const randomSeed = Date.now();
+
+    const systemInstruction = `Sen Türkiye Cumhuriyeti MEB (Milli Eğitim Bakanlığı) 4. Sınıf ilkokul müfredatında uzmanlaşmış, yeni nesil ve beceri temelli soru yazımında yetkin kıdemli bir eğitim teknolojileri uzmanısın.
 4. sınıf (9-10 yaş) çocuklarının dil becerilerine, anlama kapasitelerine ve MEB Talim Terbiye Kurulu kazanımlarına %100 sadık kalarak çoktan seçmeli sorular hazırlarsın.
-Sorularda Türkçe imla ve noktalama kurallarına dikkat et; dil sade, teşvik edici ve açık olsun.
-Her soruda 4 seçenek (A, B, C, D) bulunmalı, sadece tek bir doğru cevap olmalı ve diğer 3 seçenek mantıklı çeldiriciler içermelidir.`;
+Sorularda Türkçe imla ve noktalama kurallarına dikkat et; dil sade, merak uyandırıcı, teşvik edici ve açık olsun.
+Her soruda 4 seçenek (A, B, C, D) bulunmalı, sadece tek bir doğru cevap olmalı ve diğer 3 seçenek güçlü pedagojik çeldiriciler içermelidir.`;
 
     const userPrompt = `MEB 4. Sınıf müfredatına göre aşağıdaki ders ve konudan TAM 20 adet ÇOKTAN SEÇMELİ soru hazırla:
 Ders: ${subject}
 Konu: ${topic}
 ${customPrompt ? `Öğretmen Özel Notu: ${customPrompt}` : ""}
 
+DİNAMİK YARATICILIK & BAĞLAM BİLGİSİ:
+- Benzersiz Zaman Damgası (Tohum): ${randomSeed}
+- Rastgele Hikâye / Hayat Teması: "${randomTheme}"
+Sorulardaki kurguları, günlük hayat problemlerini, isimleri ve örnek olayları bu tema etrafında çeşitlendir; ancak daima konunun MEB 4. sınıf kazanımına odaklan.
+
 KESİN VE ZORUNLU KURALLAR:
-1. TAM 20 soru üret (id: 1'den 20'ye kadar sıralı).
-2. 20 sorunun 20'si de birbirinden TAMAMEN FARKLI, özgün, bağımsız ve benzersiz olmalıdır.
-3. Kesinlikle aynı soruyu, aynı hikayeyi veya aynı cümleyi tekrar etme.
-4. Soruların başlığında veya metninde "(Kazanım Alıştırması #...)" veya "Tekrar" gibi yapay etiketler KESİNLİKLE yer almayacaktır. Doğrudan özgün soru metnini yaz.
-5. Her sorunun options nesnesinde "A", "B", "C", "D" şıkları bulunmalıdır.
-6. "correctAnswer" değeri tam olarak "A", "B", "C" veya "D" olmalıdır.
-7. "explanation" alanında 4. sınıf çocuğunun anlayacağı 1-2 cümlelik pedagojik çözüm açıklaması olsun.`;
+1. HER ÇAĞRIDA TAMAMEN YENİ, DAHA ÖNCE SORULMAMIŞ VE ÖZGÜN SORULAR ÜRET. Kesinlikle aynı şablonu, sayıları, kalıpları veya isimleri tekrarlama.
+2. MEB 4. Sınıf Beceri Temelli ve Yeni Nesil soru tipleri kullan:
+   - Günlük hayat problemleri ve mantık-muhakeme soruları,
+   - Kısa diyaloglu / konuşma balonlu kurgular,
+   - I, II, III öncüllü çıkarım ve doğru/yanlış analiz soruları.
+3. TAM 20 soru üret (id: 1'den 20'ye kadar sıralı).
+4. 20 sorunun 20'si de birbirinden TAMAMEN FARKLI, özgün, bağımsız ve benzersiz olmalıdır.
+5. Soruların başlığında veya metninde "(Kazanım Alıştırması #...)" veya "Tekrar" gibi yapay etiketler KESİNLİKLE yer almayacaktır. Doğrudan özgün soru metnini yaz.
+6. Her sorunun options nesnesinde "A", "B", "C", "D" şıkları bulunmalıdır.
+7. "correctAnswer" değeri tam olarak "A", "B", "C" veya "D" olmalıdır.
+8. "explanation" alanında 4. sınıf çocuğunun anlayacağı 1-2 cümlelik pedagojik çözüm açıklaması olsun.`;
 
     const schemaConfig = {
       systemInstruction,
-      temperature: 0.7,
+      temperature: 0.8,
+      maxOutputTokens: 8192,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
@@ -561,7 +618,7 @@ KESİN VE ZORUNLU KURALLAR:
     for (let i = 0; i < candidateModels.length; i++) {
       const currentModel = candidateModels[i];
       try {
-        console.log(`[AI Quiz Generation] Model deneniyor: ${currentModel} (${i + 1}/${candidateModels.length})`);
+        console.log(`[AI Quiz Generation] Model deneniyor: ${currentModel} (${i + 1}/${candidateModels.length}) - Sıcaklık: 0.8`);
         response = await ai.models.generateContent({
           model: currentModel,
           contents: userPrompt,
@@ -591,10 +648,10 @@ KESİN VE ZORUNLU KURALLAR:
       throw new Error("Yapay zekâdan boş yanıt alındı.");
     }
 
-    const questions = JSON.parse(textOutput);
+    const questions = safeParseQuestions(textOutput);
 
     // Format & validate that we have valid questions
-    if (!Array.isArray(questions) || questions.length === 0) {
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
       throw new Error("Geçersiz soru formatı üretildi.");
     }
 
@@ -625,7 +682,8 @@ KESİN VE ZORUNLU KURALLAR:
       source: modelUsed,
     });
   } catch (error: any) {
-    console.warn("Tüm Gemini modelleri veya ayrıştırma hatası, Acil Durum Emniyet Sibopu devrede:", error?.message);
+    // SIFIR HATA GÜVENCESİ (FAIL-SAFE): Ekrana asla hata basma, sessizce zengin MEB havuzundan başlat
+    console.warn("AI Quiz Generation acil durum emniyet sibopu devrede:", error?.message);
     const localQuestions = getFallbackQuestions(subject, topic);
 
     return res.json({
@@ -633,82 +691,121 @@ KESİN VE ZORUNLU KURALLAR:
       count: localQuestions.length,
       fallbackUsed: true,
       questions: localQuestions,
-      source: "MEB 4. Sınıf Soru Bankası (Yedek Motor)",
+      source: "MEB 4. Sınıf Soru Bankası (Akıllı Yedek)",
     });
   }
 });
 
-// PDF & Image-based AI Quiz Generation Endpoint
+// ==========================================
+// ÇOKLU FOTOĞRAF / EKRAN GÖRÜNTÜSÜ VE PDF AI Quiz Generation Endpoint
+// ==========================================
 app.post("/api/generate-quiz-pdf", async (req, res) => {
-  const rawBase64 = req.body.fileBase64 || req.body.pdfBase64;
-  const rawName = req.body.fileName || req.body.pdfName || "dosya";
   const { mode, customPrompt, subjectName, topicName } = req.body;
+  const rawFiles = Array.isArray(req.body.files) && req.body.files.length > 0 ? req.body.files : null;
+  const singleBase64 = req.body.fileBase64 || req.body.pdfBase64;
+  const singleName = req.body.fileName || req.body.pdfName || "dosya";
+  const singleMime = req.body.mimeType;
 
-  if (!rawBase64) {
-    return res.status(400).json({
-      error: "Lütfen bir PDF veya görsel dosyası (fotoğraf / ekran görüntüsü) yükleyiniz.",
+  // Normalize files array (supports 1, 2, 3, 4+ photos / screenshots / PDFs)
+  let fileList: Array<{ base64: string; mimeType: string; name: string }> = [];
+
+  if (rawFiles) {
+    fileList = rawFiles
+      .filter((f: any) => f && (f.base64 || f.fileBase64))
+      .map((f: any, idx: number) => {
+        const raw = f.base64 || f.fileBase64;
+        let mime = f.mimeType;
+        if (!mime) {
+          const match = raw.match(/^data:([^;]+);base64,/);
+          if (match && match[1]) mime = match[1];
+          else mime = "image/jpeg";
+        }
+        if (mime === "image/jpg") mime = "image/jpeg";
+        return {
+          base64: raw.replace(/^data:[^;]+;base64,/, ""),
+          mimeType: mime,
+          name: f.name || `Sayfa ${idx + 1}`,
+        };
+      });
+  } else if (singleBase64) {
+    let mime = singleMime;
+    if (!mime) {
+      const match = singleBase64.match(/^data:([^;]+);base64,/);
+      if (match && match[1]) mime = match[1];
+      else {
+        const ext = singleName.toLowerCase().split(".").pop();
+        if (ext === "png") mime = "image/png";
+        else if (ext === "webp") mime = "image/webp";
+        else if (ext === "pdf") mime = "application/pdf";
+        else mime = "image/jpeg";
+      }
+    }
+    if (mime === "image/jpg") mime = "image/jpeg";
+    fileList = [
+      {
+        base64: singleBase64.replace(/^data:[^;]+;base64,/, ""),
+        mimeType: mime,
+        name: singleName,
+      },
+    ];
+  }
+
+  // SIFIR HATA GÜVENCESİ: Eğer hiç dosya gelmediyse sessizce MEB havuzundan üret
+  if (fileList.length === 0) {
+    const matchedSubject = subjectName || "Türkçe";
+    const matchedTopic = topicName || "4. Sınıf Genel Değerlendirme Testi";
+    const localQuestions = getFallbackQuestions(matchedSubject, matchedTopic);
+    return res.json({
+      success: true,
+      count: localQuestions.length,
+      fallbackUsed: true,
+      questions: localQuestions,
+      source: "MEB 4. Sınıf Soru Bankası (Akıllı Yedek)",
     });
   }
 
   const ai = getGeminiClient();
 
   if (!ai) {
-    return res.status(500).json({
-      error: "Gemini API anahtarı bulunamadı. Lütfen sistem ayarlarını kontrol ediniz.",
+    const matchedSubject = subjectName || (mode === "reading_comprehension" ? "Türkçe" : "Matematik");
+    const matchedTopic = topicName || fileList[0].name || "4. Sınıf Genel Tekrar";
+    const localQuestions = getFallbackQuestions(matchedSubject, matchedTopic);
+    return res.status(200).json({
+      success: true,
+      count: localQuestions.length,
+      fallbackUsed: true,
+      message: "API anahtarı bulunamadı, yerleşik MEB soru havuzundan 20 soru hazırlandı.",
+      questions: localQuestions,
+      source: "MEB 4. Sınıf Soru Bankası",
     });
   }
 
-  // Detect MIME type accurately
-  let resolvedMimeType = req.body.mimeType;
-  if (!resolvedMimeType) {
-    const dataUrlMatch = rawBase64.match(/^data:([^;]+);base64,/);
-    if (dataUrlMatch && dataUrlMatch[1]) {
-      resolvedMimeType = dataUrlMatch[1];
-    } else {
-      const ext = rawName.toLowerCase().split(".").pop();
-      if (ext === "png") resolvedMimeType = "image/png";
-      else if (ext === "jpg" || ext === "jpeg") resolvedMimeType = "image/jpeg";
-      else if (ext === "webp") resolvedMimeType = "image/webp";
-      else if (ext === "gif") resolvedMimeType = "image/gif";
-      else resolvedMimeType = "application/pdf";
-    }
-  }
-
-  if (resolvedMimeType === "image/jpg") {
-    resolvedMimeType = "image/jpeg";
-  }
-
-  const isImage = resolvedMimeType.startsWith("image/");
-  const docTypeLabel = isImage ? "fotoğraf / ekran görüntüsü" : "PDF dokümanı";
-
-  // Strip prefix like "data:image/jpeg;base64," or "data:application/pdf;base64," if present
-  const cleanBase64 = rawBase64.replace(/^data:[^;]+;base64,/, "");
-
+  const isReading = mode === "reading_comprehension";
   const candidateModels = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"];
   let response: any = null;
   let modelUsed = candidateModels[0];
   let lastError: any = null;
 
   try {
-    const isReading = mode === "reading_comprehension";
     const systemInstruction = `Sen Türkiye Cumhuriyeti MEB (Milli Eğitim Bakanlığı) 4. Sınıf ilkokul müfredatında uzmanlaşmış, ölçme ve değerlendirme alanında kıdemli bir eğitim teknolojisi uzmanısın.
-Sana iletilen görseldeki (fotoğraf, ekran görüntüsü) veya PDF belgesindeki içeriği baştan sona analiz ederek 4. sınıf (9-10 yaş) çocuklarının dil gelişimine, pedagojik düzeyine ve MEB kazanımlarına %100 uygun 20 adet çoktan seçmeli (A, B, C, D) soru hazırlarsın.
+Sana iletilen bir veya birden fazla sayfadan oluşan görseldeki (fotoğraflar, ekran görüntüleri, ön/arka sayfalar) veya PDF belgesindeki içeriği baştan sona tek bir bütün olarak analiz ederek 4. sınıf (9-10 yaş) çocuklarının dil gelişimine, pedagojik düzeyine ve MEB kazanımlarına %100 uygun 20 adet çoktan seçmeli (A, B, C, D) soru hazırlarsın.
 Her sorunun 4 seçeneği (A, B, C, D), tek bir kesin doğru cevabı ve 4. sınıf çocuğunun anlayacağı 1-2 cümlelik pedagojik çözüm açıklaması (explanation) bulunmalıdır.`;
 
     const userPrompt = `Görseldeki veya PDF'teki test sorularını / okuma metnini oku, 4. sınıf düzeyinde 4 seçenekli (A, B, C, D) 20 soruya dönüştür.
 
-Dosya Bilgisi: ${docTypeLabel} (${rawName})
+Yüklenen Belge/Sayfa Sayısı: Toplam ${fileList.length} sayfa / görsel yüklenmiştir.
+Dosyalar: ${fileList.map((f, i) => `${i + 1}. Sayfa: ${f.name} (${f.mimeType})`).join(", ")}
 Ders: ${subjectName || "Genel / Türkçe"}
-Konu: ${topicName || rawName || "Ders Çalışması"}
-Çalışma Türü: ${isReading ? "Okuma Metni / Konu Anlatımı / Hikaye" : "Hazır Test / Soru Bankası / Ekran Görüntüsü"}
+Konu: ${topicName || "Ders Çalışması"}
+Çalışma Türü: ${isReading ? "Okuma Metni / Konu Anlatımı / Hikaye" : "Hazır Test / Soru Bankası / Sayfalar"}
 ${customPrompt ? `Öğretmen Özel Yönergesi: ${customPrompt}` : ""}
 
 KESİN VE ZORUNLU KURALLAR:
-1. Görseldeki (fotoğraf / ekran görüntüsü) veya PDF'teki içeriği (sorular, paragraflar, okuma metni, grafikler veya formüller) eksiksiz tara ve oku.
-${
+1. Sana iletilen TÜM SAYFALARI (${fileList.length} adet görsel/belge) bir bütün olarak analiz et. Örneğin bir testin ön ve arka sayfası veya art arda gelen soruları varsa, tüm sayfalardaki soruları ve metinleri eksiksiz birleştir.
+2. ${
   isReading
-    ? "2. Metne, hikayeye veya konu anlatımına dayalı olarak 4. sınıf düzeyinde TAM 20 adet ÇOKTAN SEÇMELİ (A, B, C, D) okuma-anlama, kavrama, çıkarım ve ana fikir sorusu hazırla."
-    : "2. Görseldeki veya PDF belgesindeki test sorularını algıla, dijitalleştir ve interaktif 4 seçenekli teste dönüştür. Eğer 20'den az soru varsa, görseldeki/PDF'teki soruların konu bağlamını koruyarak 4. sınıf düzeyine uygun benzer sorularla TAM 20 soruya tamamla."
+    ? "Tüm sayfalardaki metne, hikayeye veya konu anlatımına dayalı olarak 4. sınıf düzeyinde TAM 20 adet ÇOKTAN SEÇMELİ (A, B, C, D) okuma-anlama, kavrama, çıkarım ve ana fikir sorusu hazırla."
+    : "Tüm sayfalardaki test sorularını algıla, dijitalleştir ve interaktif 4 seçenekli teste dönüştür. Eğer sayfalardaki toplam soru 20'den az ise, mevcut soruların konu ve kazanım bağlamını koruyarak 4. sınıf düzeyine uygun benzer sorularla TAM 20 soruya tamamla."
 }
 3. TAM 20 soru üret (id: 1'den 20'ye kadar sıralı).
 4. 20 sorunun 20'si de birbirinden TAMAMEN FARKLI, özgün, bağımsız ve benzersiz olmalıdır.
@@ -719,7 +816,8 @@ ${
 
     const schemaConfig = {
       systemInstruction,
-      temperature: 0.4,
+      temperature: 0.5,
+      maxOutputTokens: 8192,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
@@ -747,14 +845,15 @@ ${
       },
     };
 
+    // Tüm dosyaları tek bir multimodal dizide birleştir
     const multimodalContents = {
       parts: [
-        {
+        ...fileList.map((f) => ({
           inlineData: {
-            data: cleanBase64,
-            mimeType: resolvedMimeType,
+            data: f.base64,
+            mimeType: f.mimeType,
           },
-        },
+        })),
         {
           text: userPrompt,
         },
@@ -764,7 +863,7 @@ ${
     for (let i = 0; i < candidateModels.length; i++) {
       const currentModel = candidateModels[i];
       try {
-        console.log(`[Multimodal Quiz] Model deneniyor: ${currentModel} (${i + 1}/${candidateModels.length})`);
+        console.log(`[Multimodal Quiz] Model deneniyor: ${currentModel} (${i + 1}/${candidateModels.length}) - Dosya sayısı: ${fileList.length}`);
         response = await ai.models.generateContent({
           model: currentModel,
           contents: multimodalContents,
@@ -794,9 +893,9 @@ ${
       throw new Error("Dosya analizinden boş yanıt alındı.");
     }
 
-    const questions = JSON.parse(textOutput);
+    const questions = safeParseQuestions(textOutput);
 
-    if (!Array.isArray(questions) || questions.length === 0) {
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
       throw new Error("Geçersiz soru formatı üretildi.");
     }
 
@@ -822,12 +921,13 @@ ${
       success: true,
       count: validatedQuestions.length,
       questions: validatedQuestions,
-      source: isImage ? `Görsel Analizi (${modelUsed})` : `PDF Analizi (${modelUsed})`,
+      source: `${fileList.length} Sayfa Analizi (${modelUsed})`,
     });
   } catch (error: any) {
-    console.warn("Multimodal analizde tüm modeller veya ayrıştırma başarısız oldu, Acil Durum Emniyet Sibopu devrede:", error?.message);
+    // SIFIR HATA GÜVENCESİ (FAIL-SAFE): Ekrana asla hata basma, sessizce MEB havuzundan 20 soruyla testi başlat
+    console.warn("Multimodal analiz acil durum emniyet sibopu devrede:", error?.message);
     const matchedSubject = subjectName || (mode === "reading_comprehension" ? "Türkçe" : "Matematik");
-    const matchedTopic = topicName || rawName || "4. Sınıf Genel Tekrar";
+    const matchedTopic = topicName || fileList[0]?.name || "4. Sınıf Genel Tekrar";
     const localQuestions = getFallbackQuestions(matchedSubject, matchedTopic);
 
     return res.json({
@@ -835,7 +935,7 @@ ${
       count: localQuestions.length,
       fallbackUsed: true,
       questions: localQuestions,
-      source: "MEB 4. Sınıf Soru Bankası (Yedek Motor)",
+      source: "MEB 4. Sınıf Soru Bankası (Akıllı Yedek)",
     });
   }
 });
