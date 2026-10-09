@@ -105,6 +105,19 @@ export const MEB_CURRICULUM: SubjectInfo[] = [
       'Tüm Konulardan Karışık (Genel Tekrar)',
     ],
   },
+  {
+    id: 'genel_degerlendirme',
+    name: 'Genel Değerlendirme ve Deneme',
+    icon: 'Target',
+    color: 'from-indigo-600 to-purple-600',
+    badgeBg: 'bg-indigo-100 text-indigo-800 border-indigo-300',
+    badgeText: 'text-indigo-700',
+    topics: [
+      'Tüm Derslerden Karma Deneme Sınavı',
+      'Dönem / Ünite Sonu Genel Değerlendirme',
+      'Kazanım İzleme ve Tarama Testi',
+    ],
+  },
 ];
 
 interface RawQuestion {
@@ -121,8 +134,45 @@ interface RawQuestion {
 export function getFallbackQuestions(subject: string, topic: string): QuizQuestion[] {
   let rawList: RawQuestion[] = [];
 
+  // GENEL DEĞERLENDİRME VE KARMA DENEME
+  if (subject === 'Genel Değerlendirme ve Deneme' || subject === 'Genel Değerlendirme' || subject === 'genel_degerlendirme' || (subject && subject.toLowerCase().includes('deneme'))) {
+    rawList = [
+      // Türkçe (1-4)
+      { q: 'Aşağıdaki cümlelerin hangisinde "zıt (karşıt) anlamlı" sözcükler bir arada kullanılmıştır?', a: 'Dün gece erkenden uyudum.', b: 'İyi günde kötü günde daima yan yanayız.', c: 'Kitap okumak insanın ufkunu açar.', d: 'Hızlıca okula doğru koştuk.', correct: 'B', exp: '"İyi" ve "kötü" sözcükleri karşıt anlamlıdır.' },
+      { q: '"Göz gezdirmek" deyiminin anlamı aşağıdakilerden hangisidir?', a: 'Çok dikkatli ve uzun uzun incelemek', b: 'Derin derin düşünmek', c: 'Derinlemesine incelemeden kısaca bakıvermek', d: 'Gözlerini kapatıp uyumak', correct: 'C', exp: 'Göz gezdirmek, üstünkörü, ayrıntıya inmeden kısaca bakmak demektir.' },
+      { q: 'Aşağıdaki cümlelerin hangisinde büyük harflerin yazımıyla ilgili bir YANLIŞLIK yapılmıştır?', a: 'Bu yaz Ankara\'ya gideceğiz.', b: 'Cumhuriyet Bayramı 29 Ekim\'de kutlanır.', c: 'Arkadaşım ahmet dün bize geldi.', d: 'Türkçe dersinde şiirler okuduk.', correct: 'C', exp: 'Özel isimler daima büyük harfle başlar: "Ahmet" şeklinde yazılmalıdır.' },
+      { q: 'Şiirde her bir satıra (dizeye) ne ad verilir?', a: 'Kıta', b: 'Dize (Mısra)', c: 'Paragraf', d: 'Başlık', correct: 'B', exp: 'Şiirin her satırına dize (mısra) denir.' },
+
+      // Matematik (5-8)
+      { q: '45.892 doğal sayısının binler basamağındaki rakamın basamak değeri kaçtır?', a: '500', b: '5.000', c: '50.000', d: '50', correct: 'B', exp: 'Binler basamağında 5 vardır, basamak değeri 5 x 1.000 = 5.000\'dir.' },
+      { q: 'Bir çiftlikte 24 inek ve 36 tavuk vardır. Bu hayvanların toplam ayak sayısı kaçtır?', a: '144', b: '168', c: '180', d: '120', correct: 'B', exp: 'İnekler: 24 x 4 = 96 ayak. Tavuklar: 36 x 2 = 72 ayak. Toplam: 96 + 72 = 168 ayak.' },
+      { q: '60 sayısının 3/5\'i kaçtır?', a: '24', b: '36', c: '40', d: '45', correct: 'B', exp: '60 ÷ 5 = 12; 12 x 3 = 36.' },
+      { q: 'Bir kenar uzunluğu 8 cm olan bir karenin çevresi kaç santimetredir?', a: '16', b: '24', c: '32', d: '64', correct: 'C', exp: 'Karenin 4 eşit kenarı vardır: 4 x 8 = 32 cm.' },
+
+      // Fen Bilimleri (9-12)
+      { q: 'Dünya\'mızın kendi ekseni etrafında 24 saatte tamamladığı dönme hareketi sonucunda hangisi oluşur?', a: 'Mevsimler', b: 'Gece ve gündüz', c: 'Ay tutulması', d: 'Yıllık sıcaklık farkı', correct: 'B', exp: 'Dünya\'nın kendi ekseni etrafında dönmesiyle gece ve gündüz birbirini takip eder.' },
+      { q: 'Vücudumuzda yapıcı ve onarıcı olarak görev yapan, büyüme ve gelişmemizi sağlayan temel besin grubu hangisidir?', a: 'Karbonhidratlar', b: 'Proteinler', c: 'Yağlar', d: 'Vitaminler', correct: 'B', exp: 'Proteinler (et, süt, yumurta, baklagil) yapıcı ve onarıcıdır.' },
+      { q: 'Mıknatısların aynı kutupları (N-N veya S-S) birbirini nasıl etkiler?', a: 'Birbirini çeker', b: 'Birbirini iter', c: 'Etkileşmez', d: 'Isı yayar', correct: 'B', exp: 'Mıknatıslarda aynı kutuplar birbirini iter, zıt kutuplar çeker.' },
+      { q: 'Aşağıdaki maddelerden hangisi suda YÜZER?', a: 'Demir çivi', b: 'Kuru tahta parçası', c: 'Taş parçası', d: 'Cam bilye', correct: 'B', exp: 'Tahtanın yoğunluğu sudan küçük olduğu için su yüzeyinde yüzer.' },
+
+      // Sosyal Bilgiler (13-15)
+      { q: 'Kurtuluş Savaşı\'mız Mustafa Kemal Atatürk\'ün hangi şehre ayak basmasıyla fiilen başlamıştır?', a: 'Ankara', b: 'Samsun', c: 'Erzurum', d: 'Sivas', correct: 'B', exp: '19 Mayıs 1919\'da Atatürk Samsun\'a çıkarak Milli Mücadele\'yi başlattı.' },
+      { q: 'Pusulanın renkli (kırmızı) ucu daima hangi ana yönü gösterir?', a: 'Doğu', b: 'Batı', c: 'Kuzey', d: 'Güney', correct: 'C', exp: 'Pusula ibresinin renkli ucu daima Kuzey yönünü gösterir.' },
+      { q: 'Bilinçli bir tüketici alışveriş yaparken öncelikle hangisine dikkat etmelidir?', a: 'Ürünün en pahalı olmasına', b: 'Son kullanma tarihine ve TSE damgasına', c: 'Ambalajının parlak olmasına', d: 'Televizyondaki reklamına', correct: 'B', exp: 'Bilinçli tüketici son kullanma tarihine ve kalite belgesine (TSE) bakar.' },
+
+      // İnsan Hakları (16-18)
+      { q: 'Çocuk Hakları Sözleşmesi\'ne göre her birey kaç yaşına kadar çocuk kabul edilir?', a: '15', b: '16', c: '18', d: '21', correct: 'C', exp: 'Uluslararası sözleşmeye göre 18 yaşına kadar her birey çocuk kabul edilir.' },
+      { q: 'Farklı düşüncelere, kültürlere ve inançlara anlayışla yaklaşmaya ne denir?', a: 'Bencillik', b: 'Hoşgörü', c: 'Ayrımcılık', d: 'İnatçılık', correct: 'B', exp: 'Farklılıklara saygı duymak hoşgörü ve demokratik kültürün temelidir.' },
+      { q: 'Haklarımızı ararken aşağıdaki yollardan hangisine başvurmalıyız?', a: 'Kaba kuvvete', b: 'Yasal ve barışçıl yollara', c: 'Kavga etmeye', d: 'Haklarımızdan vazgeçmeye', correct: 'B', exp: 'Demokratik toplumlarda haklar kanuni ve barışçıl yollarla aranır.' },
+
+      // Trafik Güvenliği (19-20)
+      { q: 'Taşıtlarda seyahat ederken can güvenliğimiz için mutlaka takmamız gereken güvenlik unsuru hangisidir?', a: 'Güneş gözlüğü', b: 'Emniyet kemeri', c: 'Şapka', d: 'Kulaklık', correct: 'B', exp: 'Emniyet kemeri çarpışma ve ani fren anında savrulmayı önler.' },
+      { q: 'Trafik kazası veya acil sağlık durumlarında aranması gereken tek acil çağrı numarası kaçtır?', a: '155', b: '112 Acil Çağrı', c: '110', d: '156', correct: 'B', exp: 'Tüm acil yardım birimleri tek numara 112 altında toplanmıştır.' },
+    ];
+  }
+
   // 1. MATEMATİK
-  if (subject === 'Matematik') {
+  else if (subject === 'Matematik') {
     if (topic.includes('Doğal Sayılar')) {
       rawList = [
         { q: '45.892 doğal sayısının binler basamağındaki rakamın basamak değeri kaçtır?', a: '500', b: '5.000', c: '50.000', d: '50', correct: 'B', exp: 'Binler basamağında 5 vardır, basamak değeri 5 x 1.000 = 5.000\'dir.' },

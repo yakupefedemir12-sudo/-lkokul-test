@@ -211,8 +211,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   const filteredQuizzes = useMemo(() => {
     return allQuizzes.filter((q) => {
-      if (archiveSubjectFilter !== 'all' && q.subjectId !== archiveSubjectFilter) {
-        return false;
+      if (archiveSubjectFilter !== 'all') {
+        const isGenel =
+          q.subjectId === 'genel_degerlendirme' ||
+          (q.subjectName || '').toLowerCase().includes('genel') ||
+          (q.subjectName || '').toLowerCase().includes('deneme');
+
+        if (archiveSubjectFilter === 'genel_degerlendirme') {
+          if (!isGenel) return false;
+        } else {
+          if (isGenel || q.subjectId !== archiveSubjectFilter) return false;
+        }
       }
       if (archiveSearchQuery.trim()) {
         const query = archiveSearchQuery.toLowerCase();
@@ -315,9 +324,33 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const studentSubjectBreakdown = useMemo(() => {
     return MEB_CURRICULUM.map((sub) => {
       const subResults = currentStudentResults.filter((r) => {
+        const quiz = allQuizzes.find((q) => q.id === r.quizId);
         const subName = (r.subjectName || '').toLowerCase();
         const curName = sub.name.toLowerCase();
-        return subName.includes(curName) || curName.includes(subName) || r.quizId.includes(sub.id);
+
+        if (sub.id === 'genel_degerlendirme') {
+          return (
+            quiz?.subjectId === 'genel_degerlendirme' ||
+            subName.includes('genel') ||
+            subName.includes('deneme') ||
+            r.quizId.includes('genel_degerlendirme')
+          );
+        }
+
+        // For branch subjects (Matematik, Türkçe vb.): ensure general evaluations / trial exams do not dilute pure branch scores
+        const isGenel =
+          quiz?.subjectId === 'genel_degerlendirme' ||
+          subName.includes('genel') ||
+          subName.includes('deneme') ||
+          r.quizId.includes('genel_degerlendirme');
+        if (isGenel) return false;
+
+        return (
+          quiz?.subjectId === sub.id ||
+          subName.includes(curName) ||
+          curName.includes(subName) ||
+          r.quizId.includes(sub.id)
+        );
       });
 
       const count = subResults.length;
@@ -339,7 +372,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         successPct,
       };
     });
-  }, [currentStudentResults]);
+  }, [currentStudentResults, allQuizzes]);
 
   // Topic deficiencies analysis
   const studentDeficiencies = useMemo(() => {
@@ -423,7 +456,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     const subjectLines: string[] = [];
     studentSubjectBreakdown.forEach((s) => {
       if (s.count > 0) {
-        subjectLines.push(`• *${s.subject.name}:* %${s.avg} (${s.count} Sınav, ${s.correct} Doğru / ${s.wrong} Yanlış)`);
+        const name = s.subject.id === 'genel_degerlendirme' ? '🎯 Genel Değerlendirme ve Denemeler' : s.subject.name;
+        subjectLines.push(`• *${name}:* %${s.avg} (${s.count} Sınav, ${s.correct} Doğru / ${s.wrong} Yanlış)`);
       }
     });
 
@@ -947,7 +981,8 @@ _Değerli velimiz, evde yukarıdaki konu ve kazanımların tekrar edilmesi öğr
 
     let subId: SubjectId = 'turkce';
     const sLower = titleSubject.toLowerCase();
-    if (sLower.includes('mat')) subId = 'matematik';
+    if (sLower.includes('genel') || sLower.includes('deneme')) subId = 'genel_degerlendirme';
+    else if (sLower.includes('mat')) subId = 'matematik';
     else if (sLower.includes('fen')) subId = 'fen_bilimleri';
     else if (sLower.includes('sosyal')) subId = 'sosyal_bilgiler';
     else if (sLower.includes('insan') || sLower.includes('hak')) subId = 'insan_haklari';
@@ -2303,7 +2338,7 @@ _Değerli velimiz, evde yukarıdaki konu ve kazanımların tekrar edilmesi öğr
           <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-4 sm:p-5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             {/* Subject Filters */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
-              {(['all', 'matematik', 'fen_bilimleri', 'turkce', 'sosyal_bilgiler', 'insan_haklari', 'trafik_guvenligi'] as const).map((filter) => {
+              {(['all', 'matematik', 'fen_bilimleri', 'turkce', 'sosyal_bilgiler', 'insan_haklari', 'trafik_guvenligi', 'genel_degerlendirme'] as const).map((filter) => {
                 const label =
                   filter === 'all'
                     ? 'Tüm Dersler'
@@ -2317,12 +2352,16 @@ _Değerli velimiz, evde yukarıdaki konu ve kazanımların tekrar edilmesi öğr
                     ? 'Sosyal Bilgiler'
                     : filter === 'insan_haklari'
                     ? 'İnsan Hakları'
-                    : 'Trafik Güvenliği';
+                    : filter === 'trafik_guvenligi'
+                    ? 'Trafik Güvenliği'
+                    : 'Genel Değerlendirme';
 
                 const count =
                   filter === 'all'
                     ? allQuizzes.length
-                    : allQuizzes.filter((q) => q.subjectId === filter).length;
+                    : filter === 'genel_degerlendirme'
+                    ? allQuizzes.filter((q) => q.subjectId === 'genel_degerlendirme' || (q.subjectName || '').toLowerCase().includes('genel') || (q.subjectName || '').toLowerCase().includes('deneme')).length
+                    : allQuizzes.filter((q) => q.subjectId === filter && !(q.subjectName || '').toLowerCase().includes('genel') && !(q.subjectName || '').toLowerCase().includes('deneme')).length;
 
                 return (
                   <button
@@ -2395,7 +2434,9 @@ _Değerli velimiz, evde yukarıdaki konu ve kazanımların tekrar edilmesi öğr
 
                 // Color accent based on subject
                 const subjectBadgeColor =
-                  q.subjectId === 'matematik'
+                  q.subjectId === 'genel_degerlendirme' || (q.subjectName || '').toLowerCase().includes('genel') || (q.subjectName || '').toLowerCase().includes('deneme')
+                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                    : q.subjectId === 'matematik'
                     ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
                     : q.subjectId === 'fen_bilimleri'
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -3091,6 +3132,8 @@ _Değerli velimiz, evde yukarıdaki konu ve kazanımların tekrar edilmesi öğr
                         <option value="Matematik">Matematik</option>
                         <option value="Fen Bilimleri">Fen Bilimleri</option>
                         <option value="Sosyal Bilgiler">Sosyal Bilgiler</option>
+                        <option value="İnsan Hakları">İnsan Hakları, Yurttaşlık ve Demokrasi</option>
+                        <option value="Trafik Güvenliği">Trafik Güvenliği</option>
                         <option value="Genel Değerlendirme">Genel Değerlendirme</option>
                       </select>
                     </div>
@@ -3531,25 +3574,26 @@ ${activeQuiz.subjectName || 'Ders'} dersi '${activeQuiz.topic || 'Konu'}' pekiş
                   </div>
                 </div>
 
-                {/* 1. SECTION: DERS BAZLI BAŞARI DAĞILIMI (MEB 6 TEMEL DERS) */}
+                {/* 1. SECTION: DERS BAZLI BAŞARI DAĞILIMI (MEB 4. SINIF DERS VE DENEME BAŞARI GRAFİĞİ) */}
                 <div className="bg-white rounded-3xl border border-slate-200 p-6 space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                     <h4 className="text-base font-black text-slate-800 flex items-center gap-2">
                       <BarChart3 className="w-5 h-5 text-indigo-600" />
-                      <span>MEB 4. Sınıf 6 Temel Ders Başarı Grafiği</span>
+                      <span>MEB 4. Sınıf Ders ve Deneme Başarı Grafiği</span>
                     </h4>
                     <span className="text-xs text-slate-400 font-semibold">Tüm Geçmiş Testlerin Ortalaması</span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {studentSubjectBreakdown.map((item) => {
+                      const isGenel = item.subject.id === 'genel_degerlendirme';
                       const hasExams = item.count > 0;
                       const pct = item.avg;
                       const barColor =
                         !hasExams
                           ? 'bg-slate-300'
                           : pct >= 70
-                          ? 'bg-emerald-500'
+                          ? (isGenel ? 'bg-indigo-600' : 'bg-emerald-500')
                           : pct >= 50
                           ? 'bg-amber-500'
                           : 'bg-rose-500';
@@ -3557,7 +3601,7 @@ ${activeQuiz.subjectName || 'Ders'} dersi '${activeQuiz.topic || 'Konu'}' pekiş
                         !hasExams
                           ? 'bg-slate-100 text-slate-600'
                           : pct >= 70
-                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          ? (isGenel ? 'bg-indigo-100 text-indigo-800 border-indigo-300' : 'bg-emerald-100 text-emerald-800 border-emerald-300')
                           : pct >= 50
                           ? 'bg-amber-100 text-amber-800 border-amber-300'
                           : 'bg-rose-100 text-rose-800 border-rose-300';
@@ -3565,20 +3609,26 @@ ${activeQuiz.subjectName || 'Ders'} dersi '${activeQuiz.topic || 'Konu'}' pekiş
                         !hasExams
                           ? 'Sınav Yok'
                           : pct >= 70
-                          ? 'Kazanım Kavranmış'
+                          ? (isGenel ? 'Deneme Başarılı' : 'Kazanım Kavranmış')
                           : pct >= 50
                           ? 'Pekiştirilmeli'
                           : 'Kritik Eksiklik';
 
+                      const displayName = isGenel ? '🎯 Genel Değerlendirme ve Denemeler' : item.subject.name;
+
                       return (
                         <div
                           key={item.subject.id}
-                          className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col justify-between space-y-3"
+                          className={`rounded-2xl p-4 flex flex-col justify-between space-y-3 transition-all ${
+                            isGenel
+                              ? 'bg-indigo-50/60 border-2 border-indigo-200/90 shadow-2xs ring-1 ring-indigo-300/40'
+                              : 'bg-slate-50 border border-slate-200/80'
+                          }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div>
-                              <span className="text-xs font-black text-slate-800 block">
-                                {item.subject.name}
+                              <span className={`text-xs font-black block ${isGenel ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
+                                {displayName}
                               </span>
                               <span className="text-[11px] text-slate-500 font-medium">
                                 {hasExams ? `${item.count} Sınav • ${item.correct}D / ${item.wrong}Y` : 'Henüz Sınav Girilmedi'}
@@ -3597,7 +3647,7 @@ ${activeQuiz.subjectName || 'Ders'} dersi '${activeQuiz.topic || 'Konu'}' pekiş
                               />
                             </div>
                             <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold mt-1.5">
-                              <span>{statusText}</span>
+                              <span className={isGenel && hasExams ? 'text-indigo-700 font-extrabold' : ''}>{statusText}</span>
                               {hasExams && <span>%{pct} Başarı</span>}
                             </div>
                           </div>

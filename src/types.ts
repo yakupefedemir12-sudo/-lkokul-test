@@ -1,4 +1,4 @@
-export type SubjectId = 'matematik' | 'turkce' | 'fen_bilimleri' | 'sosyal_bilgiler' | 'insan_haklari' | 'trafik_guvenligi';
+export type SubjectId = 'matematik' | 'turkce' | 'fen_bilimleri' | 'sosyal_bilgiler' | 'insan_haklari' | 'trafik_guvenligi' | 'genel_degerlendirme';
 
 export interface SubjectInfo {
   id: SubjectId;
